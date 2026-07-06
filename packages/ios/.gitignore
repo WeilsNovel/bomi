@@ -1,0 +1,15 @@
+# Xcode 构建产物（per-package gitignore，根 .gitignore 由整合方维护）
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+
+# Swift Package Manager（Stage 1 暂未使用，预留）
+.swiftpm/
+Package.resolved
+
+# CocoaPods（Stage 1 暂未使用，预留）
+Pods/
