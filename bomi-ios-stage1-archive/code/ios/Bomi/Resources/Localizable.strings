@@ -1,0 +1,8 @@
+/* bomi · 本地化文案（Stage 1 占位，后续扩展多语言） */
+"app.name" = "bomi";
+"login.title" = "欢迎使用 bomi";
+"login.subtitle" = "AI 食物识别 · 健康打卡 · 智能计划";
+"login.apple" = "使用 Apple 登录";
+"login.wechat" = "使用微信登录";
+"login.phone" = "使用手机号登录";
+"login.agreement" = "登录即代表同意《bomi 用户协议》和《隐私政策》";
