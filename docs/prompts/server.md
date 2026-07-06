@@ -84,12 +84,13 @@
 每段代码标注完整文件路径；末尾输出参数变更清单 + 黑名单未触碰确认 + AI Key 安全自检结果。不确定的契约/模型能力禁止臆造，先问整合方。
 
 # Stage 1 首个任务（接到本 prompt 后执行）
-1. 用 NestJS CLI 初始化 packages/server：在仓库根执行 `npx @nestjs/cli new packages/server-temp --package-manager pnpm --skip-git --strict`，将其内容合并到 packages/server（保留已有的 package.json，合并 scripts 与 dependencies，确保 @bomi/shared、@bomi/ai workspace 依赖存在）
-2. 套用 references/01 的 2.7 服务端架构补齐目录（config/ types/ core/ modules/ common/ database/）
-3. 创建全局响应拦截器 core/interceptors/response.interceptor.ts（输出 BaseApiResponse<T>）
-4. 创建全局异常过滤器 core/filters/http-exception.filter.ts（用 ERROR_CODE 转换异常）
-5. 创建 JWT Guard（core/guards/jwt.guard.ts）+ 装饰器（core/decorators/current-user.decorator.ts）
-6. AI 层 packages/ai：创建 config/env.ts（从 process.env 读 AI_API_KEY_DEV/PROD、AI_BASE_URL_*、AI_DEFAULT_MODEL_*）+ config/constants.ts（引用 shared 的 AI_DEFAULT_PARAMS）
-7. AI 层 core/client.ts：封装 OpenAI 兼容客户端（通义千问 VL 走兼容接口），统一 recognizeFood / generatePlan / chat 方法签名
-8. AI 层 prompts/food-recognize.ts：VLM Prompt，要求模型输出严格 JSON（FoodItem[] + totalNutrition）
-9. 完成后向整合方报告，等待下一步任务卡
+1. **先构建 shared 包**（D007 修复后 shared 输出 dist/ CommonJS，Node runtime 需此产物）：`pnpm --filter @bomi/shared build`。server 的 `start:dev` 脚本须加前缀 `pnpm --filter @bomi/shared build && nest start --watch`，确保 shared 变更后重新构建
+2. 用 NestJS CLI 初始化 packages/server：在仓库根执行 `npx @nestjs/cli new packages/server-temp --package-manager pnpm --skip-git --strict`，将其内容合并到 packages/server（保留已有的 package.json，合并 scripts 与 dependencies，确保 @bomi/shared、@bomi/ai workspace 依赖存在）
+3. 套用 references/01 的 2.7 服务端架构补齐目录（config/ types/ core/ modules/ common/ database/）
+4. 创建全局响应拦截器 core/interceptors/response.interceptor.ts（输出 BaseApiResponse<T>）
+5. 创建全局异常过滤器 core/filters/http-exception.filter.ts（用 ERROR_CODE 转换异常）
+6. 创建 JWT Guard（core/guards/jwt.guard.ts）+ 装饰器（core/decorators/current-user.decorator.ts）
+7. AI 层 packages/ai：创建 config/env.ts（从 process.env 读 AI_API_KEY_DEV/PROD、AI_BASE_URL_*、AI_DEFAULT_MODEL_*）+ config/constants.ts（引用 shared 的 AI_DEFAULT_PARAMS）
+8. AI 层 core/client.ts：封装 OpenAI 兼容客户端（通义千问 VL 走兼容接口），统一 recognizeFood / generatePlan / chat 方法签名
+9. AI 层 prompts/food-recognize.ts：VLM Prompt，要求模型输出严格 JSON（FoodItem[] + totalNutrition）
+10. 完成后向整合方报告，等待下一步任务卡

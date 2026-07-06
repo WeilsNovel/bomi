@@ -98,3 +98,33 @@
 **理由**：用户要求新增 iOS 端并追平现有进度。选原生 Swift 是因 App Store 上架与体验最佳；镜像类型方案保证 shared 仍是单一事实来源（TS），iOS 是只读镜像，契约不漂移。
 
 **替代方案**：React Native（可直接 import @bomi/shared 但上架体积大，否决）/ Flutter（需 TS→Dart 代码生成，monorepo 集成复杂，否决）
+
+## D007 · shared 包构建配置修复（2026-07-06）
+
+**结论**：shared 包从「TS 源码直接暴露」改为「tsc 构建 dist/ + CommonJS 输出」，解决 Node runtime 无法加载的问题。
+
+**根因**：
+- 原配置 `"type": "module"` + `"main": "./src/index.ts"`（TS 源码 + 扩展名省略导入）
+- 前端走 bundler（Vite/Webpack）可正常消费 TS 源码
+- 但 Node runtime 的 server 无法 `require()` 加载 TS 源码 —— 报 `ERR_REQUIRE_ESM`
+- 服务端对话 Stage 1 发现此问题并提案（方案 A），整合方采纳
+
+**修复内容**：
+- `packages/shared/tsconfig.json`：`module: "CommonJS"` + `moduleResolution: "Node"`（原 ESNext/Bundler）
+- `packages/shared/package.json`：移除 `"type": "module"`，`main/types/exports` 全部指向 `dist/`
+- 新增 `dev: "tsc --watch"` 脚本（开发期 shared 变更热重建）
+- `.gitignore` 已排除 `dist/`（构建产物不入库，按需构建）
+- 验证：`pnpm build` 成功，`node -e "require('./dist/index.js')"` 加载通过
+
+**使用方式**：
+- server 启动前需先构建 shared：`pnpm --filter @bomi/shared build`
+- server 的 `start:dev` 脚本建议加前缀：`pnpm --filter @bomi/shared build && nest start --watch`
+- 前端（miniapp/admin）bundler 自动解析到 dist/，无需额外操作
+- iOS 用 Swift 镜像类型，不受影响
+
+**影响**：
+- 解除 server runtime 启动阻塞
+- shared 源码变更后需重建 dist/（开发期用 `pnpm --filter @bomi/shared dev` 热重建）
+- 不影响前端消费方式（bundler 兼容 CommonJS）
+
+**替代方案**：shared 内部导入补 .js 扩展名（原生 ESM 强制，侵入性大，否决）/ shared 改 type:commonjs 但不构建（TS 源码仍不能被 Node 直接加载，否决）
