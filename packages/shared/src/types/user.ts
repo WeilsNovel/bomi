@@ -39,6 +39,23 @@ export interface PhoneLoginRequest {
   code: string;
 }
 
+/** Apple 登录入参（iOS 客户端专用，App Store 强制要求） */
+export interface AppleLoginRequest {
+  /** Apple 返回的 JWT identityToken */
+  identityToken: string;
+  /** Apple 返回的授权码 */
+  authorizationCode: string;
+  /** Apple 用户唯一标识（同 Apple ID 跨 App 稳定） */
+  appleIdentifier: string;
+  /** 首次授权才有，后续授权返回空 */
+  fullName?: {
+    givenName?: string;
+    familyName?: string;
+  };
+  /** 用户自填昵称（Apple 不返回昵称，需客户端引导用户设置） */
+  nickname?: string;
+}
+
 /** 发送短信验证码入参 */
 export interface SendSmsCodeRequest {
   phone: string;

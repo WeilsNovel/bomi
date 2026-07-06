@@ -41,6 +41,11 @@ interface BaseApiResponse<T> {
 - **请求**：`PhoneLoginRequest`
 - **响应**：`BaseApiResponse<LoginResponse>`
 
+### POST `/api/auth/apple-login` · Apple 登录（iOS 客户端专用）
+- **请求**：`AppleLoginRequest`（shared/types/user.ts）
+- **响应**：`BaseApiResponse<LoginResponse>`
+- **说明**：App Store 强制要求——有第三方登录（微信）就必须提供 Apple Sign In；server 校验 identityToken 后建号/登录
+
 ### POST `/api/auth/logout` · 退出登录
 - **请求**：无
 - **响应**：`BaseApiResponse<null>`
@@ -151,6 +156,8 @@ interface BaseApiResponse<T> {
 | 42901 | 限流 | 提示稍后重试 |
 | 40111 | 微信登录失败 | 提示重试 |
 | 40112 | 验证码错误 | 输入框回显 |
+| 40113 | 手机号已绑定 | 提示换号 |
+| 40114 | Apple 登录失败 | 提示重试 |
 | 50021 | AI 识别失败 | 提示重拍 |
 | 50022 | 计划生成失败 | 提示重试 |
 | 50023 | AI 超时 | 提示稍后重试 |

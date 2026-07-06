@@ -65,38 +65,36 @@
 **结论**：特性分支 + 整合方合并；整合方接管分支命名；合并顺序固定。
 
 **5 道防线**：
-1. **包路径物理隔离**：miniapp/admin/server/ai 各自独立目录，三端改的文件不重叠，合并零冲突
-2. **shared 整合方独占**：三端改 shared 必须提案，整合方落地，单一事实来源不分裂
-3. **整合方是合并唯一仲裁者**：三端只往 feat 分支提交，合并到 main 只能整合方做
-4. **顺序合并**：shared → server → 前端（契约先稳，前端再对齐）
-5. **Conventional Commits**：`feat(server):` / `fix(miniapp):` 前缀，追溯归属
+1. 包路径物理隔离：各端独立目录，合并零冲突
+2. shared 整合方独占：单一事实来源不分裂；iOS 镜像结构亦由整合方同步
+3. 整合方是合并唯一仲裁者
+4. 顺序合并：shared → server → 前端 → ios
+5. Conventional Commits 前缀追溯归属
 
-**分支模型**：
-```
-三端对话                           整合方                    origin
-──────────                         ──────────                ──────
-feat/miniapp-stageN ──┐
-feat/admin-stageN   ──┼──→ 审查 + 按序合并 ──→ main ──→ push
-feat/server-stageN  ──┘        (shared→server→前端)
-```
+**分支命名**：四端第一动作 `git branch -m trae/agent-* feat/{端}-stageN`，main 受保护。
 
-**分支命名规则**：
-- 三端对话接到 prompt 后第一动作：`git branch -m trae/agent-* feat/{端}-stageN`
-  - 对话①：`feat/miniapp-stage1`、`feat/miniapp-stage2`...
-  - 对话②：`feat/admin-stage1`、`feat/admin-stage2`...
-  - 对话③：`feat/server-stage1`、`feat/server-stage2`...
-- main 受保护，三端禁止直接提交
+**四端铁律**：只在 feat 分支提交、禁止碰 main、禁止改 shared（iOS 禁改镜像结构）、禁止跨端、合并由整合方做。
 
-**三端铁律**：
-1. 只在自己的 `feat/{端}-stageN` 提交，禁止碰 main
-2. 禁止改 `packages/shared/`（提案给整合方）
-3. 禁止跨端目录（miniapp 不碰 admin/server/ai 的代码）
-4. 阶段完成向整合方报告，合并由整合方做
+## D006 · iOS 客户端新增（2026-06-29）
 
-**理由**：
-- Monorepo 包隔离使三端代码物理不交叉，"乱"的根源被消除
-- 唯一高风险文件 shared 由单点控制
-- 整合方仲裁避免三端互相覆盖、乱合
-- TRAE 沙箱会自动建 `trae/agent-*` 随机分支，必须接管命名否则后期无法追溯归属
+**结论**：新增第四端 iOS 客户端，技术栈 Swift 5.9 + SwiftUI（iOS 16+），功能与小程序一致，复用同一套 server API。
 
-**替代方案**：dev 集成分支流（多一层维护，本项目规模不必要）/ 单分支直接提交（main 不稳，回滚难）—— 均否决
+**技术决策**：
+- **技术栈**：Swift + SwiftUI 原生（非 RN/Flutter）。理由：bomi 健康饮食 App 重体验，原生上架最稳
+- **shared 对接**：Swift 镜像类型方案。`packages/ios/Bomi/Shared/` 维护与 `@bomi/shared` 逐字段对应的 Swift struct/enum；镜像文件头标注来源；**镜像结构由整合方同步，iOS 对话禁擅改**
+- **登录**：Apple Sign In（App Store 强制）+ 微信 SDK + 手机号验证码。Apple 登录已落地 DTO `AppleLoginRequest`（shared/types/user.ts）+ 路径 `/api/auth/apple-login`（api-contract.md）+ 错误码 `APPLE_LOGIN_FAILED: 40114`
+- **token 存储**：Keychain（非 UserDefaults）
+- **包位置**：packages/ios，不接入 pnpm workspace（非 JS 包）
+
+**影响**：
+- shared/types/user.ts 新增 `AppleLoginRequest`
+- shared/constants/error-code.ts 新增 `APPLE_LOGIN_FAILED: 40114` + 文案
+- docs/api-contract.md 新增 `POST /api/auth/apple-login`
+- docs/prompts/ios.md 新增 iOS 对话 prompt
+- 合并顺序更新：shared → server → 前端 → ios
+- server `auth` 模块需补 `/api/auth/apple-login` 实现（校验 identityToken）
+- 用户表需存 `appleIdentifier` 字段
+
+**理由**：用户要求新增 iOS 端并追平现有进度。选原生 Swift 是因 App Store 上架与体验最佳；镜像类型方案保证 shared 仍是单一事实来源（TS），iOS 是只读镜像，契约不漂移。
+
+**替代方案**：React Native（可直接 import @bomi/shared 但上架体积大，否决）/ Flutter（需 TS→Dart 代码生成，monorepo 集成复杂，否决）

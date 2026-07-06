@@ -28,6 +28,8 @@ export const ERROR_CODE = {
   SMS_CODE_INVALID: 40112,
   /** 手机号已被绑定 */
   PHONE_ALREADY_BOUND: 40113,
+  /** Apple 登录失败（iOS 客户端） */
+  APPLE_LOGIN_FAILED: 40114,
   /** AI 识别失败（图片无法识别 / 供应商返回错误） */
   AI_RECOGNIZE_FAILED: 50021,
   /** AI 计划生成失败 */
@@ -52,6 +54,7 @@ export const ERROR_MESSAGE_MAP: Record<number, string> = {
   [ERROR_CODE.WX_LOGIN_FAILED]: '微信登录失败，请重试',
   [ERROR_CODE.SMS_CODE_INVALID]: '验证码错误或已过期',
   [ERROR_CODE.PHONE_ALREADY_BOUND]: '该手机号已被其他账号绑定',
+  [ERROR_CODE.APPLE_LOGIN_FAILED]: 'Apple 登录失败，请重试',
   [ERROR_CODE.AI_RECOGNIZE_FAILED]: '识别失败，请重新拍摄清晰的食物照片',
   [ERROR_CODE.AI_PLAN_GENERATE_FAILED]: '计划生成失败，请稍后重试',
   [ERROR_CODE.AI_TIMEOUT]: '识别超时，请稍后重试',
