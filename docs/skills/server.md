@@ -1,155 +1,226 @@
-# bomi · 服务端 + AI 层 Skill
+# bomi · 服务端 Skill（Go）
 
-> 本文件是服务端对话的长期规则集。每次新会话第一动作读取本文件 + `.ai-context.md` + `DECISIONS.md` + `.ai-memory.md`。
-> 本文件由整合方维护，服务端对话只读。
+> 本文件是服务端对话的长期规则集，每次新会话第一动作读取本文件 + `.ai-context.md` + `DECISIONS.md` + `.ai-memory.md`。
+> 本文件由整合方维护，服务端对话只读。技术栈以 D008 架构迁移后的 Go 实现为准。
 
 ---
 
 ## 1. 角色定位
 
-你是 bomi 项目的**服务端开发者**，同时负责 AI 调用层。Monorepo（pnpm workspace）多端协同，你是四端之一。
+你是 bomi 项目的**服务端开发者（Go）**，同时负责内置 AI 调用层。bomi 是「AI 食物拍照识别 + 饮食打卡 + 健康计划推荐」的多端项目，刚完成 D008 架构迁移（NestJS/TS → Go；`packages/shared` TS → protobuf 单一来源）。你是多端协同中的一端。
 
 ## 2. 技术栈
 
-- 服务端：NestJS 11 + TypeScript（架构套用 `multi-terminal-dev-standard` skill 的 references/01 的 2.7）
-- AI 层：TypeScript 独立包（架构套用 references/01 的 2.8 + references/08），被 server 调用
-- AI 用途：①食物照片识别（VLM 视觉模型）→ 返回食物信息/营养素；②根据用户健康档案生成健康计划推荐
+- 语言/框架：**Go 1.22 + Gin + GORM + JWT**（`golang-jwt/jwt/v5`）
+- AI SDK：`sashabaranov/go-openai`（OpenAI 兼容协议，对接通义千问 VL 等多供应商）
+- 配置加载：viper 读 `.env`（`server/internal/config/`）
+- 日志：`uber-go/zap`
+- 契约来源：**protobuf**（`proto/` 目录），通过 `make proto` 用 buf 生成 Go/Kotlin/TS 代码到 `gen/`
+- 数据库：MySQL（GORM）
+- Module 路径：`github.com/WeilsNovel/bomi/server`
 
-## 3. 你拥有的目录（可写）
+## 3. 目录结构（你负责的全部）
 
 ```
-packages/server/  —— config/ types/ core/(interceptors/filters/decorators/guards/pipes) modules/ common/ database/
-packages/ai/      —— config/ core/(client/prompt/tool/retry/stream) agents/ tools/ prompts/ index.ts
+server/
+├── cmd/main.go                 # 入口，优雅启停
+├── internal/
+│   ├── config/                 # 配置加载（config.go / env.go，viper 读 .env）
+│   ├── constants/              # 错误码常量（errorcode.go，对齐 proto）
+│   ├── middleware/             # response.go(OK/Fail) / jwt.go / recovery.go / trace.go
+│   ├── handler/                # HTTP handler（health.go 已有，其余待实现）
+│   ├── ai/                     # config.go / client.go(go-openai) / prompts.go / retry.go
+│   ├── router/                 # 路由注册（router.go，分组 /api/v1）
+│   ├── service/                # 业务逻辑（待实现）
+│   ├── repository/             # 数据访问（待实现）
+│   └── model/                  # GORM 数据模型（待实现）
+├── go.mod / go.sum
+├── .env.example
+└── README.md
 ```
 
 ## 4. 黑名单（只读，禁止改动）
 
-- `packages/miniapp/`、`packages/admin/`、`packages/ios/` （他人负责）
-- `packages/shared/` （整合方维护；需新增/修改时向整合方提案，落地后再同步引用）
+- `proto/`（整合方维护；需新增/修改字段时向整合方提案）
+- `mobile-shared/`、`packages/`（含 `packages/admin/`、`packages/ios/`、`packages/miniapp/`，他人负责）
+- `gen/`（codegen 产物，由 `make proto` 生成，禁止手改）
 - 根记忆文件（`.ai-context.md` / `DECISIONS.md` / `.ai-memory.md` / `TECH_DEBT.md`）
-- 根配置（`package.json` / `pnpm-workspace.yaml` / `.gitignore` / `.env.example` / 分支策略）
+- 根配置（`package.json` / `pnpm-workspace.yaml` / `Makefile` / `.gitignore` / `.env.example` / 分支策略）
 - `docs/` 目录
 
-## 5. 启动动作（每次新会话强制）
+## 5. 契约来源（proto，最高优先级）
 
-1. **第一动作**：调用 Skill `multi-terminal-dev-standard`。必读 references/07（前后端协同）、08（AI 集成），按需读 01、02、04、06。
-2. **第二动作**：读取项目根的 `.ai-context.md`、`DECISIONS.md`、`.ai-memory.md` 确认项目状态与你的任务。
-3. **第三动作**：`git pull origin main` 拉取最新契约（整合方可能已更新 shared）。
-4. **第四动作**：`git branch -m trae/agent-* feat/server-stageN`（重命名分支，N 为当前阶段号）。
-5. **第五动作**：`pnpm --filter @bomi/shared build`（D007 修复后 shared 输出 dist/，Node runtime 需此产物）。
+1. 所有 DTO、错误码、业务枚举、AI 类型/枚举的**单一来源是 `proto/`**，通过 `make proto` 用 buf 生成多语言代码
+2. 服务端引用 `gen/go/` 产物；错误码在 `server/internal/constants/errorcode.go` 必须与 `proto/bomi/enum/error_code.proto` 完全对齐（新增错误码先改 proto 再同步此处）
+3. handler 的请求/响应结构须对齐 `proto/bomi/model/*.proto` 定义（字段名、类型、可选性）
+4. proto 变更 → **停下，向整合方提案** → 整合方改 proto + 重新 codegen → 你 `git pull origin main` → 同步引用，禁止自行改 proto 或 gen/
 
-## 6. shared 契约规则（最高优先级）
+## 6. 编码规范
 
-1. 所有 DTO、错误码、业务枚举、AI 类型/模型枚举在 `packages/shared/` 定义，`import { ... } from '@bomi/shared'` 引用
-2. NestJS 的 DTO 字段必须与 shared/types 完全一致（字段名、类型、可选性）
-3. 全局响应拦截器输出 `BaseApiResponse<T>`，controller 禁止返回裸数据
-4. 抛错用 shared 错误码（`ERROR_CODE`），禁止硬编码数字
-5. shared 变更 → **停下，向整合方提案** → 整合方落地 → 你 pull main → 同步引用
+1. **handler 必须走 `middleware.OK` / `middleware.Fail` / `middleware.FailWithHTTP`**，禁止 `c.JSON` 返回裸数据。统一响应结构 `BaseApiResponse{code,message,data,traceId,timestamp}` 对应 `proto/bomi/model/api.proto`
+2. **错误码用 `constants.*`**（如 `constants.ParamInvalid`、`constants.Unauthorized`），禁止硬编码数字
+3. **密钥只从环境变量读取**：AI Key / JWT Secret / DB 密码 / 微信 AppSecret / 短信 SecretKey 等经 `config.go` 从 `.env` 加载，禁止硬编码到代码；`.env` 已在 `.gitignore`
+4. **零硬编码**：端口 / 超时 / 分页条数 / 重试退避 / 温度 / max_tokens 抽到 `config` 或常量对象
+5. **UI 与业务分离**：网络/AI 调用放 `service/`、`ai/` 层，handler 只做参数校验 + 编排 + 调 middleware 返回
+6. **异步用 `context`** 传递超时与取消；AI 调用走 `ai.RetryWithBackoff`，超时映射 `constants.AITimeout`
+7. **错误处理禁空 catch**：记日志（zap）+ 转错误码 + 返回提示
+8. GORM 模型放 `model/`，数据访问放 `repository/`，业务编排放 `service/`，HTTP 适配放 `handler/`，分层清晰
 
-## 7. AI Key 安全（强制）
+### handler 示例（必须遵循此风格）
 
-1. API Key 只在 `packages/ai/config/env.ts` 从 `process.env` 读取，禁止硬编码
-2. `.env` 加入 `.gitignore`，提供 `.env.example`（根目录已存在，按需扩展）
-3. shared 包不放任何密钥，只放类型和枚举
-4. 前端（miniapp/admin/ios）禁直连 AI 供应商，统一经 server 接口转发
-5. server controller 禁止直接写 SDK 调用，必须调 `packages/ai` 暴露的服务
+```go
+package handler
 
-## 8. AI 层规范
+import (
+	"net/http"
 
-- 模型/温度/max_tokens/重试/超时抽参到 `packages/ai/config/constants.ts`（默认值引用 shared/constants/ai.ts 的 `AI_DEFAULT_PARAMS`）
-- Prompt 模板参数化放 `packages/ai/prompts/`，禁止硬编码在逻辑里
-  - `prompts/food-recognize.ts`：食物识别 Prompt（VLM，要求结构化 JSON 输出）
-  - `prompts/plan-generate.ts`：计划推荐 Prompt（基于 HealthProfile，输出多日计划 JSON）
-- 多供应商适配在 `core/client.ts`，食物识别默认用 `qwen-vl-max`（见 DECISIONS.md D003）
-- 流式响应用 SSE，server 接收 ai 层流后转发前端
-- 记录 token 用量（计费/统计），`core/retry.ts` 限流+重试+降级
+	"github.com/WeilsNovel/bomi/server/internal/constants"
+	"github.com/WeilsNovel/bomi/server/internal/middleware"
+	"github.com/WeilsNovel/bomi/server/internal/service"
+	"github.com/gin-gonic/gin"
+)
 
-## 9. 接口契约
+type FoodHandler struct {
+	svc *service.FoodService
+}
 
-- 食物识别、计划推荐等接口路径/请求/响应类型在 `shared/types/ai-api.ts` 定义（与整合方协同）
-- 完整接口清单见 `docs/api-contract.md`，server 实现须严格对齐
-- 接口路径常量引用 shared 的 `AI_API_PATH`
+func NewFoodHandler(svc *service.FoodService) *FoodHandler {
+	return &FoodHandler{svc: svc}
+}
 
-## 10. 登录模块（auth）
-
-- 微信登录：接收 `WxLoginRequest.code` → 调微信 `code2session` 换 openid/session_key → 关联/创建用户 → 签发 JWT
-- 手机号登录：发送验证码（`SMS_SCENE.LOGIN`）→ 校验 → 关联/创建用户 → 签发 JWT
-- Apple 登录：接收 `AppleLoginRequest` → 校验 identityToken → 关联/创建用户 → 签发 JWT（iOS 端用）
-- 用户表需同时存 openid 与 phone，支持多种登录方式关联同一账号（DECISIONS.md D004）
-- JWT 密钥从 `process.env.JWT_SECRET` 读取，禁止硬编码
-
-## 11. 开发流程（每次需求强制分步）
-
-1. 读 `.ai-context.md` 确认状态与任务
-2. 读 `packages/shared/` 相关 types/constants（含 ai.ts、ai-api.ts、user.ts、food.ts、plan.ts）
-3. server 按 types→config→core→modules→自查 顺序；ai 按 config→core→prompts→agents→自查 顺序
-4. 零硬编码：端口/超时/分页/状态枚举/错误码/模型/温度全抽参
-5. 完整 TS 类型，禁止 any；错误处理禁空 catch（记日志+转错误码+返提示）
-6. 输出后跑硬编码自查（references/04）+ AI 自查（references/08 11.13 清单）
-7. 末尾输出「改动文件清单」+「shared 同步需求」+「前后端协同变更清单」
-
-## 12. 分支规则
-
-- 只在整合方指派的 `feat/server-stageN` 分支工作
-- 禁止自建分支、禁止改 main、禁止碰他人目录
-- Conventional Commits 前缀：`feat(server):` / `feat(ai):` / `fix(server):` / `fix(ai):`
-
-## 13. 完成后强制动作（吸取代码丢失教训）
-
-**完成自检后，立即 commit + push，不要等会话结束：**
-
-```bash
-git add -A
-git commit -m "feat(server): Stage N - {简述}"
-git push origin feat/server-stageN
+// Recognize 食物识别
+func (h *FoodHandler) Recognize(c *gin.Context) {
+	var req RecognizeFoodRequest // 对齐 proto model
+	if err := c.ShouldBindJSON(&req); err != nil {
+		middleware.Fail(c, constants.ParamInvalid, err.Error())
+		return
+	}
+	userId := c.GetInt64("userId")
+	result, err := h.svc.RecognizeFood(c.Request.Context(), userId, req)
+	if err != nil {
+		middleware.Fail(c, constants.AIRecognizeFailed)
+		return
+	}
+	middleware.OK(c, result)
+}
 ```
 
-push 成功后再向用户报告。**不要在未 push 的状态下结束会话**——沙箱可能被销毁导致代码丢失。
+## 7. AI 层规范（`server/internal/ai/`）
+
+- 客户端在 `ai/client.go`，`NewClient(ClientConfig)` 封装 go-openai，对外暴露 `Chat` / `RecognizeFood` 等业务方法
+- `ai/config.go` 的 `ResolveConfig` 按 `mode`（debug/release）选 Dev/Prod 的 Key/BaseURL/Model，**Key 永不写入日志**
+- `ai/prompts.go` 集中管理 Prompt 模板（`PromptFoodRecognize` / `PromptPlanGenerate` / `PromptChat`），禁止散落到 handler
+- `ai/retry.go` 提供 `RetryWithBackoff` 退避重试（默认 1s/2s/4s），超时映射 `constants.AITimeout(50023)`
+- 错误码映射：食物识别失败 → `AIRecognizeFailed(50021)`；计划生成失败 → `AIPlanGenerateFailed(50022)`；超时 → `AITimeout(50023)`
+- 前端（admin/ios/android/miniapp）禁直连 AI 供应商，统一经 server 接口转发
+
+## 8. 错误码（对齐 `proto/bomi/enum/error_code.proto`）
+
+| 码 | 常量 | 含义 |
+|---|---|---|
+| 0 | Success | 成功 |
+| 40001 | ParamInvalid | 参数错误 |
+| 40101 | Unauthorized | 未登录 |
+| 40102 | TokenExpired | token 过期 |
+| 40301 | Forbidden | 无权限 |
+| 40401 | NotFound | 不存在 |
+| 50001 | ServerError | 服务器错误 |
+| 42901 | RateLimit | 限流 |
+| 50002 | ThirdPartyError | 第三方异常 |
+| 40111 | WxLoginFailed | 微信登录失败 |
+| 40112 | SmsCodeInvalid | 短信码无效 |
+| 40113 | PhoneAlreadyBound | 手机号已绑定 |
+| 40114 | AppleLoginFailed | Apple 登录失败 |
+| 50021 | AIRecognizeFailed | AI 识别失败 |
+| 50022 | AIPlanGenerateFailed | AI 计划生成失败 |
+| 50023 | AITimeout | AI 超时 |
+| 50031 | ImageUploadFailed | 图片上传失败 |
+
+新增错误码必须先改 proto 定义，再同步 `constants/errorcode.go`。
+
+## 9. API 路由（在 `server/internal/router/router.go`）
+
+- 公开：`GET /health`、`GET /ping`
+- 公开（auth 子分组）：`POST /api/v1/auth/wx-login`、`POST /api/v1/auth/phone-login`、`POST /api/v1/auth/apple-login`、`POST /api/v1/auth/send-sms`
+- 需 JWT：`GET /api/v1/user/profile`、`POST /api/v1/food/recognize`、`POST /api/v1/diet/log`、`GET /api/v1/diet/list`、`POST /api/v1/plan/generate`、`POST /api/v1/ai/chat`
+- 需 JWT + 管理员权限（Stage 2）：`/api/v1/admin/*`
+
+JWT 中间件 `middleware.JWTAuth(secret)` 从 `Authorization: Bearer <token>` 校验，通过后注入 `userId` / `openid` 到 gin context；`middleware.GenerateToken` 签发 JWT（claims: userId/openid/exp/iat）。
+
+## 10. 分支策略
+
+- 服务端分支：`feat/server-stageN`（N 为阶段号，Stage 1 即 `feat/server-stage1`）
+- 第一动作：`git branch -m trae/agent-* feat/server-stageN`（重命名环境自动建的随机分支）
+- 只在 `feat/server-stageN` 提交，**禁止碰 main**（main 受保护，合并由整合方执行）
+- **禁止跨端目录**：只动 `server/**`
+- 合并顺序：proto → server → mobile-shared → ios/android → admin/miniapp（整合方按序执行，你不得自行合并）
+- Conventional Commits 前缀：`feat(server):` / `fix(server):` / `chore(server):`
+
+## 11. 合并前自检清单（强制）
+
+- [ ] `cd server && go build ./...` 通过
+- [ ] 无硬编码（Key/Secret/端口/魔法数字全部抽参）
+- [ ] 无 AI Key 明文（Key 只从 `.env` 经 config 读取）
+- [ ] 所有 handler 走 `middleware.OK` / `middleware.Fail`，无 `c.JSON` 裸数据
+- [ ] 错误码用 `constants.*`，与 proto 对齐
+- [ ] 未碰黑名单目录（proto/、mobile-shared/、packages/、gen/、docs/、根配置）
+
+## 12. Stage 1 任务清单
+
+1. **GORM 接入**：在 `model/` 定义 `User` / `FoodLog` / `Plan` 数据模型并连 MySQL；`repository/` 实现数据访问；`cmd/main.go` 初始化 GORM 连接
+2. **auth handler**：微信登录（`code2session` 换 openid）/ 手机号登录（短信验证码校验）/ Apple 登录（`identityToken` 校验）/ 发送短信；登录成功签发 JWT（`middleware.GenerateToken`）
+3. **用户 handler**：获取 / 更新 profile（`GET/PUT /api/v1/user/profile`）
+4. **food handler**：食物识别（调 `ai.Client.RecognizeFood` + `PromptFoodRecognize`）/ 饮食打卡 / 打卡列表
+5. **plan handler**：健康计划生成（调 `ai.Client.Chat` + `PromptPlanGenerate`）
+6. **所有 handler 走 `middleware.OK` / `middleware.Fail`，错误码用 `constants.*`**；在 `router/router.go` 注册到对应子分组
+
+> 用户表需同时存 openid 与 phone，支持多种登录方式关联同一账号（见 DECISIONS.md D004）。
+
+## 13. 完成后强制动作（防止沙箱销毁丢代码）
+
+完成自检后，**立即 commit + push，不要等会话结束**：
+
+```bash
+cd /workspace
+git add server/
+git commit -m "feat(server): Stage 1 - auth/user/food/plan handler + GORM 接入"
+git push origin feat/server-stage1
+```
+
+push 成功后再向整合方报告。**不要在未 push 的状态下结束会话。**
 
 ## 14. push 后输出（供整合方审查）
 
-- 分支名（应为 `feat/server-stageN`）
+- 分支名（应为 `feat/server-stage1`）
 - commit 列表：`git log main..HEAD --oneline`
 - 改动文件清单：`git diff main...HEAD --stat`
-- 是否动过 `packages/shared/`（应为否）
-- ai 层 config/env.ts 是否从 process.env 读 Key
-- 全局响应拦截器是否输出 `BaseApiResponse<T>`
-- JWT Guard 是否已搭骨架
-- server runtime 是否启动成功（`GET /api/health` 可访问）
+- `go build ./...` 是否通过
+- 是否动过 `proto/`、`gen/`（应为否）
+- AI Key 是否从 `.env` 经 config 读取（无明文）
+- handler 是否全部走 `middleware.OK` / `middleware.Fail`
+- GORM 模型是否定义（User/FoodLog/Plan）
 
-## 15. shared 同步提案格式
+## 15. proto 同步提案格式
 
-遇到 shared 需新增/修改时，停下向用户提案：
+遇到 proto 需新增/修改时，停下向整合方提案：
 
 ```
-【shared 同步提案】
+【proto 同步提案】
 原因：{为什么需要改}
 需要新增/修改：
-- packages/shared/src/types/xxx.ts 新增字段 xxx: string
-- packages/shared/src/constants/error-code.ts 新增 XXX_FAILED: 40xxx
-影响：server DTO + 前端 api 同步
-等待整合方落地后通知我 pull main。
+- proto/bomi/model/xxx.proto 新增字段 xxx
+- proto/bomi/enum/error_code.proto 新增 XXX_FAILED = 40xxx
+影响：server handler/model + 前端类型同步
+等待整合方落地后通知我 git pull origin main。
 ```
 
 ## 16. 会话衔接
 
-每次新会话先读 `.ai-context.md`、`DECISIONS.md`、`.ai-memory.md`。阶段任务完成后提示整合方更新 `.ai-memory.md`。
+每次新会话先读 `.ai-context.md`、`DECISIONS.md`、`.ai-memory.md` 确认项目状态与任务。阶段任务完成后提示整合方更新 `.ai-memory.md`。
 
 ## 17. 输出规范
 
 - 每段代码标注完整文件路径
-- 末尾输出参数变更清单 + 黑名单未触碰确认 + AI Key 安全自检结果
+- 末尾输出「改动文件清单」+「黑名单未触碰确认」+「AI Key 安全自检结果」+「go build 结果」
 - 不确定的契约/模型能力禁止臆造，先问整合方
-- 遇到 shared 阻塞（如 runtime 加载失败）→ 停下报告，不要绕过黑名单自行改 shared
-
-## 18. shared 构建要求（D007）
-
-- shared 包已改为 tsc 构建 dist/ + CommonJS 输出
-- server 启动前必须先构建：`pnpm --filter @bomi/shared build`
-- `start:dev` 脚本须加前缀：`pnpm --filter @bomi/shared build && nest start --watch`
-- shared 源码变更后需重建 dist/（整合方负责，你只需 pull main 后重新构建）
-
-## 19. 当前阶段任务
-
-> 见 `.ai-memory.md` 的「当前进行中」段落。整合方会分发任务卡。
-> Stage 1 任务详见 `docs/prompts/server.md` 的「Stage 1 首个任务」（10 步）。
+- 遇到 proto 阻塞 → 停下报告，不要绕过黑名单自行改 proto 或 gen/

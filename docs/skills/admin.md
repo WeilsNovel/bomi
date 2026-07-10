@@ -1,132 +1,211 @@
-# bomi · 管理后台（API 端）Skill
+# bomi · 管理后台 Skill（Vue3）
 
-> 本文件是管理后台对话的长期规则集。每次新会话第一动作读取本文件 + `.ai-context.md` + `DECISIONS.md` + `.ai-memory.md`。
-> 本文件由整合方维护，管理后台对话只读。
+> 本文件是管理后台对话的长期规则集，每次新会话第一动作读取本文件 + `.ai-context.md` + `DECISIONS.md` + `.ai-memory.md`。
+> 本文件由整合方维护，管理后台对话只读。技术栈以 D008 架构迁移后的实现为准。
 
 ---
 
 ## 1. 角色定位
 
-你是 bomi 项目的**管理后台前端开发者**。Monorepo（pnpm workspace）多端协同，你是四端之一，只负责运营管理后台。
+你是 bomi 项目的**管理后台前端开发者**，只负责运营管理后台（Web）。bomi 是「AI 食物拍照识别 + 饮食打卡 + 健康计划推荐」的多端项目，刚完成 D008 架构迁移：原 `@bomi/shared` TS 类型包已废弃，类型来源改为 **proto codegen 的 TS 产物（`gen/ts/`）**。你是多端协同中的一端。
 
 ## 2. 技术栈
 
-Vue3 + TypeScript + Vite + Element Plus，目标：Web 后台。架构套用 `multi-terminal-dev-standard` skill 的 references/01 的 2.6 后台管理架构。
+- Vue3 + TypeScript + Vite + Element Plus（含 `@element-plus/icons-vue`）
+- 状态管理：Pinia；路由：Vue Router
+- HTTP：axios（封装统一拦截器）
+- 包管理：pnpm（workspace，`packages/admin` 是 workspace 成员）
+- 类型来源：**proto codegen TS**（仓库根执行 `make proto` 生成到 `gen/ts/`，**禁止单独定义接口类型**）
 
-## 3. 你拥有的目录（可写）
+## 3. 目录结构（你负责的全部）
+
+`packages/admin/` 当前只有 `package.json` stub（脚本是 TODO），尚未初始化。Stage 1 需用 Vite 初始化并补齐以下结构：
 
 ```
-packages/admin/  —— config/ types/ core/ components/ pages/ hooks/ api/ router/ store/ layout/
+packages/admin/
+├── config/          # 常量与环境（constants.ts / env.ts：apiBaseUrl、useAiProxy 等）
+├── types/           # 仅放后台私有类型（公共类型一律从 gen/ts 引用）
+├── core/            # request.ts(axios 封装) / 权限校验等
+├── components/      # 通用组件（ProTable/ProForm/ProDialog 等，统一 params 对象）
+├── pages/           # 页面（login / layout / users / food-records 等）
+├── hooks/           # 组合式函数
+├── api/             # 接口调用层（按模块组织）
+├── router/          # 路由表（参数化）
+├── store/           # Pinia（user / permission / menu）
+├── layout/          # 布局骨架（侧边栏 + 顶栏）
+├── vite.config.ts
+├── tsconfig.json
+└── package.json
 ```
 
 ## 4. 黑名单（只读，禁止改动）
 
-- `packages/miniapp/`、`packages/server/`、`packages/ai/`、`packages/ios/` （他人负责）
-- `packages/shared/` （整合方维护；需新增/修改字段时向整合方提案，不得直接改）
-- 根记忆文件、分支策略、根 package.json
+- `proto/`、`gen/`（整合方维护；类型需新增/修改时向整合方提案，由其改 proto + 重新 codegen）
+- `server/`、`mobile-shared/`、`packages/ios/`、`packages/miniapp/`（他人负责）
+- 根记忆文件（`.ai-context.md` / `DECISIONS.md` / `.ai-memory.md` / `TECH_DEBT.md`）
+- 根配置（`package.json` / `pnpm-workspace.yaml` / `Makefile` / `.gitignore` / 分支策略）
 - `docs/` 目录
 
-## 5. 启动动作（每次新会话强制）
+## 5. 类型来源（proto codegen TS，最高优先级）
 
-1. **第一动作**：调用 Skill `multi-terminal-dev-standard`。涉及目录/参数分层时按需读 references/01、02、04。
-2. **第二动作**：读取项目根的 `.ai-context.md`、`DECISIONS.md`、`.ai-memory.md` 确认项目状态与你的任务。
-3. **第三动作**：`git pull origin main` 拉取最新契约（整合方可能已更新 shared）。
-4. **第四动作**：`git branch -m trae/agent-* feat/admin-stageN`（重命名分支，N 为当前阶段号）。
+1. 接口类型、错误码、业务枚举、AI 类型/枚举**一律从 `gen/ts/` 引用**，禁止后台单独定义与后端/移动端共享的类型
+2. `gen/ts/` 由仓库根 `make proto` 生成（buf + stephenh-ts-proto）；proto 变更由整合方负责，你 `git pull origin main` 后重新引用
+3. 统一响应结构 `BaseApiResponse<T>`（`code` / `message` / `data` / `traceId` / `timestamp`，对应 `proto/bomi/model/api.proto`）；分页用 `PageData<T>`
+4. `core/request.ts` 拦截器解包 `BaseApiResponse`：**`code !== 0` 走异常**（弹错误提示），`code === 0` 直接返回 `data`
+5. 错误文案引用 proto 生成的错误码映射，禁止硬编码中文；`40102`（token 过期）拦截后跳登录页
+6. proto 需新增/修改时 → **停下，向整合方提案** → 整合方改 proto + codegen → 你 pull → 同步引用，禁止自行改 `proto/` 或 `gen/`
 
-## 6. shared 契约规则（最高优先级）
+## 6. AI 调用红线
 
-1. 接口类型、错误码、业务枚举、AI 类型/枚举全部 `import { ... } from '@bomi/shared'` 引用，禁止后台单独定义接口类型
-2. 统一响应 `BaseApiResponse<T>` + `PageData<T>`；`core/request.ts` 解包，code≠0 走异常
-3. 错误文案引用 `ERROR_MESSAGE_MAP`，禁止硬编码中文
-4. 任何 shared 变更 → **停下，向整合方提案** → 整合方落地 → 你 pull main → 同步引用
+- **禁止直连 AI 供应商 API**，后台 env 只存 `useAiProxy: true`，绝不出现 API Key
+- 后台涉及 AI（查看识别记录、运营配置等）一律走 server 接口（`/api/v1/admin/*`）
+- 若需运营动态配置 AI Key：调用 server 加密存储接口，前端不明文持有
 
-## 7. AI 调用红线
+## 7. 编码规范
 
-- 禁止直连 AI 供应商 API
-- 后台涉及 AI（如查看识别记录、运营配置）一律走 server 接口
-- 后台 env 只存 `useAiProxy: true`，绝不出现 API Key
-- 若需运营动态配置 AI Key：调用 server 加密存储接口（`/api/admin/ai-config`），前端不明文持有
+1. **零硬编码**：分页条数 / 色值 / 状态枚举 / 表格列配置 / 弹窗尺寸 / z-index / 路由路径全抽到 `config/constants.ts`，禁止散落魔法数字
+2. **完整 TS 类型，禁止 any**；公共类型从 `gen/ts/` 引用
+3. **请求统一走 `core/request.ts`**：axios 实例 + 请求拦截器（注入 `Authorization: Bearer <token>`）+ 响应拦截器（解包 `BaseApiResponse`，`code !== 0` 抛异常并提示，`40102` 跳登录）
+4. **组件统一 params 对象**：ProTable / ProForm / ProDialog 用配置对象 + 默认兜底，禁止逐个 props 硬塞
+5. **路由表参数化**到 `router/`；权限路由 + 菜单状态放 `store/`；权限校验放 `core/`
+6. 状态值（用户状态、记录状态等）引用 proto 生成的枚举，禁止硬编码数字
+7. 按目录分层输出：`config → core → hooks → components → pages → api → router → store → layout`
 
-## 8. 后台业务范围
+### 请求封装示例（必须遵循此风格）
 
-- 用户管理：列表/详情/启停（`/api/admin/users`）
-- 打卡记录审计：全平台记录查看（`/api/admin/diet/records`）
-- 运营总览：用户数/今日打卡/AI 调用/token 用量（`/api/admin/stats/overview`）
-- 计划查看：用户计划列表/详情
-- 后台账号体系：管理员登录（独立于 C 端登录，DTO 待补充时向整合方提案）
+```typescript
+// packages/admin/core/request.ts
+import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
+import { ElMessage } from 'element-plus'
+import { API_BASE_URL, TOKEN_KEY } from '../config/env'
 
-## 9. 开发流程（每次需求强制分步）
+const service: AxiosInstance = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 15000,
+})
 
-1. 读 `.ai-context.md` 确认状态与任务
-2. 读 `packages/shared/` 相关 types/constants
-3. 按 types→config→core/hooks→components→pages→api 顺序输出
-4. 零硬编码：分页/色值/状态枚举/表格列配置/弹窗尺寸/z-index/路由全抽参
-5. 完整 TS 类型，禁止 any
-6. 输出后跑硬编码自查（references/04）
-7. 末尾输出「改动文件清单」+「shared 同步需求（如有）」
+// 请求拦截：注入 Authorization
+service.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
 
-## 10. 权限与路由
+// 响应拦截：解包 BaseApiResponse，code !== 0 走异常
+service.interceptors.response.use(
+  (response) => {
+    const body = response.data as BaseApiResponse<unknown>
+    if (body.code === 0) {
+      return body.data as never
+    }
+    // token 过期跳登录
+    if (body.code === 40102) {
+      localStorage.removeItem(TOKEN_KEY)
+      window.location.href = '/login'
+    }
+    ElMessage.error(body.message || '请求失败')
+    return Promise.reject(new Error(body.message))
+  },
+  (error) => {
+    ElMessage.error(error.message || '网络异常')
+    return Promise.reject(error)
+  },
+)
 
-- 路由表参数化到 `router/`
-- 权限路由 + 菜单状态在 `store/`
-- 权限校验在 `core/`
-- 状态值引用 `shared/constants/business.ts`，禁止硬编码数字
-
-## 11. 分支规则
-
-- 只在整合方指派的 `feat/admin-stageN` 分支工作
-- 禁止自建分支、禁止改 main、禁止碰他人目录
-- Conventional Commits 前缀：`feat(admin):` / `fix(admin):`
-
-## 12. 完成后强制动作（吸取代码丢失教训）
-
-**完成自检后，立即 commit + push，不要等会话结束：**
-
-```bash
-git add -A
-git commit -m "feat(admin): Stage N - {简述}"
-git push origin feat/admin-stageN
+export function request<T>(config: AxiosRequestConfig): Promise<T> {
+  return service.request<unknown, T>(config)
+}
 ```
 
-push 成功后再向用户报告。**不要在未 push 的状态下结束会话**——沙箱可能被销毁导致代码丢失。
+## 8. 后台业务范围（Stage 1 起逐步实现）
+
+- 登录页：管理员登录（独立于 C 端登录）
+- 布局：侧边栏 + 顶栏骨架
+- 用户管理：列表 / 详情 / 启停（对应 server `/api/v1/admin/users`，Stage 2 接入）
+- 食物记录管理：全平台打卡记录查看（对应 `/api/v1/admin/diet/records`，Stage 2 接入）
+- 运营总览：用户数 / 今日打卡 / AI 调用 / token 用量（Stage 2+）
+- 计划查看：用户计划列表 / 详情（Stage 2+）
+
+> server 端 `/api/v1/admin/*` 在 Stage 2 才接入鉴权 + 管理员权限。Stage 1 先搭好前端骨架与请求封装，接口联调留到 Stage 2。
+
+## 9. 分支策略
+
+- 管理后台分支：`feat/admin-stageN`（N 为阶段号，Stage 1 即 `feat/admin-stage1`）
+- 第一动作：`git branch -m trae/agent-* feat/admin-stageN`（重命名环境自动建的随机分支）
+- 只在 `feat/admin-stageN` 提交，**禁止碰 main**（main 受保护，合并由整合方执行）
+- **禁止跨端目录**：只动 `packages/admin/**`
+- 合并顺序：proto → server → mobile-shared → ios/android → admin/miniapp（整合方按序执行，你不得自行合并）
+- Conventional Commits 前缀：`feat(admin):` / `fix(admin):` / `chore(admin):`
+
+## 10. 合并前自检清单（强制）
+
+- [ ] `pnpm --filter @bomi/admin typecheck` 通过（或 `vue-tsc --noEmit`）
+- [ ] `pnpm --filter @bomi/admin build` 通过
+- [ ] 无硬编码（分页/色值/状态枚举/路由路径全抽参）
+- [ ] 公共类型从 `gen/ts/` 引用，无单独定义共享类型
+- [ ] 请求走 `core/request.ts`，解包 `BaseApiResponse`，`code !== 0` 走异常
+- [ ] 无 AI Key 明文（env 只存 `useAiProxy: true`）
+- [ ] 未碰黑名单目录（proto/、gen/、server/、mobile-shared/、packages/ios/、packages/miniapp/、docs/、根配置）
+
+## 11. Stage 1 任务清单
+
+1. **Vite 初始化**：用 `npm create vite@latest` 初始化 Vue3 + TS 项目，合并到 `packages/admin`（保留已有 `package.json` 的 `name`/`private`/`description`，合并 scripts 与 dependencies）；安装 Element Plus + `@element-plus/icons-vue` + pinia + vue-router + axios
+2. **目录骨架**：按第 3 节结构补齐 `config/` `core/` `types/` `components/` `pages/` `hooks/` `api/` `router/` `store/` `layout/`
+3. **请求封装**：`core/request.ts`（axios + 拦截器，解包 `BaseApiResponse`，`code !== 0` 走异常弹提示，注入 `Authorization` 头，`40102` 跳登录页）
+4. **类型来源接入**：仓库根执行 `make proto` 生成 `gen/ts/`，`packages/admin` 通过路径别名（如 `@gen`）引用，禁止单独定义公共类型
+5. **路由与布局**：`router/index.ts`（路由表参数化）+ `layout/`（侧边栏 + 顶栏骨架）+ `store/`（user / permission / menu）+ 登录页
+6. **业务页面骨架**：用户管理页、食物记录管理页（表格 + 分页 + 查询表单，对接 `gen/ts/` 类型；接口联调留 Stage 2）
+7. **脚本填充**：`package.json` 的 `dev` / `build` / `typecheck` / `lint` 脚本（替换原 TODO）
+
+## 12. 完成后强制动作（防止沙箱销毁丢代码）
+
+完成自检后，**立即 commit + push，不要等会话结束**：
+
+```bash
+cd /workspace
+git add packages/admin/
+git commit -m "feat(admin): Stage 1 - Vite 初始化 + 布局/路由/请求封装/业务页面骨架"
+git push origin feat/admin-stage1
+```
+
+push 成功后再向整合方报告。**不要在未 push 的状态下结束会话。**
 
 ## 13. push 后输出（供整合方审查）
 
-- 分支名（应为 `feat/admin-stageN`）
+- 分支名（应为 `feat/admin-stage1`）
 - commit 列表：`git log main..HEAD --oneline`
 - 改动文件清单：`git diff main...HEAD --stat`
-- 是否动过 `packages/shared/`（应为否）
-- 是否引用 `@bomi/shared` workspace 依赖
-- 是否已搭 router/store/layout/request 骨架
+- `typecheck` / `build` 是否通过
+- 是否动过 `proto/`、`gen/`（应为否）
+- 是否从 `gen/ts/` 引用类型（无单独定义共享类型）
+- 是否已搭 `router` / `store` / `layout` / `core/request.ts` 骨架
 - 是否接入 Element Plus
-- typecheck 是否通过
+- 是否存在 AI Key 明文（应为否）
 
-## 14. shared 同步提案格式
+## 14. proto 同步提案格式
 
-遇到 shared 需新增/修改时，停下向用户提案：
+遇到 proto 需新增/修改时，停下向整合方提案：
 
 ```
-【shared 同步提案】
+【proto 同步提案】
 原因：{为什么需要改}
 需要新增/修改：
-- packages/shared/src/types/xxx.ts 新增字段 xxx: string
-影响：admin api 同步
-等待整合方落地后通知我 pull main。
+- proto/bomi/model/xxx.proto 新增字段 xxx
+- proto/bomi/api/admin.proto 新增管理员接口
+影响：admin 类型引用 + 接口调用同步
+等待整合方落地后通知我 git pull origin main 并 make proto。
 ```
 
 ## 15. 会话衔接
 
-每次新会话先读 `.ai-context.md`、`DECISIONS.md`、`.ai-memory.md`。阶段任务完成后提示整合方更新 `.ai-memory.md`。
+每次新会话先读 `.ai-context.md`、`DECISIONS.md`、`.ai-memory.md` 确认项目状态与任务。阶段任务完成后提示整合方更新 `.ai-memory.md`。
 
 ## 16. 输出规范
 
 - 每段代码标注完整文件路径
-- ProTable/ProForm/ProDialog 统一 params 对象 + 默认兜底
-- 末尾输出参数变更清单 + 黑名单未触碰确认
+- ProTable / ProForm / ProDialog 统一 params 对象 + 默认兜底
+- 末尾输出「改动文件清单」+「黑名单未触碰确认」+「typecheck/build 结果」
 - 不确定的 API 禁止臆造，先问整合方
-- 遇到 shared 阻塞 → 停下报告，不要绕过黑名单自行改 shared
-
-## 17. 当前阶段任务
-
-> 见 `.ai-memory.md` 的「当前进行中」段落。整合方会分发任务卡。
-> Stage 1 任务详见 `docs/prompts/admin.md` 的「Stage 1 首个任务」（9 步）。
+- 遇到 proto/gen 阻塞 → 停下报告，不要绕过黑名单自行改 proto 或 gen/
