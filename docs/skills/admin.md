@@ -7,7 +7,7 @@
 
 ## 1. 角色定位
 
-你是 bomi 项目的**管理后台前端开发者**，只负责运营管理后台（Web）。bomi 是「AI 食物拍照识别 + 饮食打卡 + 健康计划推荐」的多端项目，刚完成 D008 架构迁移：原 `@bomi/shared` TS 类型包已废弃，类型来源改为 **proto codegen 的 TS 产物（`gen/ts/`）**。你是多端协同中的一端。
+你是 bomi 项目的**管理后台前端开发者**，只负责运营管理后台（Web）。bomi 是「AI 食物拍照识别 + 饮食打卡 + 健康计划推荐」的多端项目，刚完成 D008 架构迁移：原 `@bomi/shared` TS 类型包已废弃，类型来源改为 **proto codegen 的 TS 产物（`gen/ts/`）**。随后完成 D009-D013 隐私架构修订：PostgreSQL 统一（pgx + GORM，禁用 MySQL）、AI 食物识别图片临时上传 COS → VLM 识别 → 用户确认后删除（5 分钟生命周期兜底）、饮食打卡明细完全本地化（SQLDelight + iCloud/坚果云，后端无 diet 接口）、开发期 Neon PG + 上线自建 PG、腾讯云 COS 双桶（永久素材 + AI 临时，无 CDN）。你是多端协同中的一端。
 
 ## 2. 技术栈
 
@@ -124,9 +124,14 @@ export function request<T>(config: AxiosRequestConfig): Promise<T> {
 - 登录页：管理员登录（独立于 C 端登录）
 - 布局：侧边栏 + 顶栏骨架
 - 用户管理：列表 / 详情 / 启停（对应 server `/api/v1/admin/users`，Stage 2 接入）
-- 食物记录管理：全平台打卡记录查看（对应 `/api/v1/admin/diet/records`，Stage 2 接入）
-- 运营总览：用户数 / 今日打卡 / AI 调用 / token 用量（Stage 2+）
-- 计划查看：用户计划列表 / 详情（Stage 2+）
+- 会员订阅管理：会员套餐 / 订阅记录 / 状态管理（Stage 2+）
+- 米花积分流水：积分发放 / 消耗记录查询（Stage 2+）
+- 好友邀请记录：邀请关系链 / 奖励发放记录（Stage 2+）
+- 苹果内购订单：订单列表 / 凭证校验状态 / 退款记录（Stage 2+）
+- COS 素材管理：运营素材 CRUD（上传/删除运营海报、主题素材等永久素材桶内容）；**不管理 AI 临时桶**（D013：AI 识别图片临时桶由服务端自动生命周期管理，5 分钟兜底删除）
+- App 全局配置文案：开屏文案 / 公告 / 引导页等内容下发（Stage 2+）
+
+> **D011 说明**：饮食打卡明细完全本地化（SQLDelight + iCloud/坚果云），后端不存储打卡数据，**管理后台不再有"饮食打卡记录管理"功能**。
 
 > server 端 `/api/v1/admin/*` 在 Stage 2 才接入鉴权 + 管理员权限。Stage 1 先搭好前端骨架与请求封装，接口联调留到 Stage 2。
 
@@ -156,7 +161,7 @@ export function request<T>(config: AxiosRequestConfig): Promise<T> {
 3. **请求封装**：`core/request.ts`（axios + 拦截器，解包 `BaseApiResponse`，`code !== 0` 走异常弹提示，注入 `Authorization` 头，`40102` 跳登录页）
 4. **类型来源接入**：仓库根执行 `make proto` 生成 `gen/ts/`，`packages/admin` 通过路径别名（如 `@gen`）引用，禁止单独定义公共类型
 5. **路由与布局**：`router/index.ts`（路由表参数化）+ `layout/`（侧边栏 + 顶栏骨架）+ `store/`（user / permission / menu）+ 登录页
-6. **业务页面骨架**：用户管理页、食物记录管理页（表格 + 分页 + 查询表单，对接 `gen/ts/` 类型；接口联调留 Stage 2）
+6. **业务页面骨架**：用户管理页（表格 + 分页 + 查询表单，对接 `gen/ts/` 类型；接口联调留 Stage 2）
 7. **脚本填充**：`package.json` 的 `dev` / `build` / `typecheck` / `lint` 脚本（替换原 TODO）
 
 ## 12. 完成后强制动作（防止沙箱销毁丢代码）

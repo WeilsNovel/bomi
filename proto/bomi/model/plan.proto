@@ -35,10 +35,27 @@ message HealthProfile {
   PlanType plan_type = 8;
 }
 
+// 近期营养汇总（App 从本地 DB 聚合，传后端用于 AI 个性化推荐）
+// 全部为匿名聚合数字，不含食物明细，后端用完即丢不入库
+message RecentNutritionSummary {
+  // 近7日平均日均热量 kcal
+  optional double avg_daily_calories = 1;
+  // 近7日平均日均蛋白质 g
+  optional double avg_daily_protein = 2;
+  // 近7日平均日均碳水 g
+  optional double avg_daily_carbs = 3;
+  // 近7日平均日均脂肪 g
+  optional double avg_daily_fat = 4;
+  // 统计天数（不足7日时按实际天数）
+  optional int32 sample_days = 5;
+}
+
 // 生成计划请求（前端 → server）
 message GeneratePlanRequest {
-  // 健康档案（前端传，或服务端读取已有档案）
+  // 健康档案
   HealthProfile profile = 1;
+  // 近期营养汇总（可选，无则 AI 按通用规则生成）
+  optional RecentNutritionSummary recent_nutrition = 2;
 }
 
 // 单餐建议
@@ -75,32 +92,4 @@ message GeneratePlanResponse {
   repeated DayPlan days = 5;
   // AI 生成的整体建议
   string advice = 6;
-}
-
-// 计划列表项
-message PlanItem {
-  int32 id = 1;
-  int32 user_id = 2;
-  string plan_name = 3;
-  PlanType plan_type = 4;
-  int32 total_days = 5;
-  NutritionInfo daily_target = 6;
-  string start_date = 7;
-  string end_date = 8;
-  string created_at = 9;
-}
-
-// 计划列表查询入参
-message PlanListRequest {
-  int32 page_num = 1;
-  int32 page_size = 2;
-  optional PlanType plan_type = 3;
-}
-
-// 计划列表响应
-message PlanListResponse {
-  repeated PlanItem list = 1;
-  int32 total = 2;
-  int32 page_num = 3;
-  int32 page_size = 4;
 }

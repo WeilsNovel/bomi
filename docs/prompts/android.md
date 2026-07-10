@@ -16,15 +16,17 @@ bomi 是一个 AI 食物拍照识别 + 饮食打卡 + 健康计划推荐的多�
 - iOS：KMP 集成 + SwiftUI（原生 UI）
 
 服务端 API（REST + JSON，统一响应 `{code, message, data, traceId, timestamp}`，code=0 成功）：
+
+> D011 后饮食打卡明细完全本地化（SQLDelight + 坚果云 WebDAV），后端**不再提供 diet 接口**。
+
 - `POST auth/wx-login {code}` → `{token, user}`
 - `POST auth/phone-login {phone, code}` → `{token, user}`
 - `POST auth/apple-login {identityToken, authCode}` → `{token, user}`
 - `POST auth/send-sms {phone}` → `{}`
 - `GET user/profile` → UserItem
-- `POST food/recognize {imageUrl}` → `{foods: [FoodItem]}`
-- `POST diet/log {mealType, foods, loggedAt}` → `{}`
-- `GET diet/list?pageNum&pageSize` → [FoodItem]
-- `POST plan/generate {profile, planType}` → PlanItem
+- `POST food/recognize {imageUrl}` → `{foods: [FoodItem]}`（D010：imageUrl 为 COS 临时桶地址，识别后调 `food/deleteImage` 清理）
+- `POST food/deleteImage {imageUrl}` → `{}`（D010：删除 COS 临时桶图片，用户确认/取消后均调用）
+- `POST plan/generate {profile, planType, recentNutritionSummary?}` → PlanItem（D011：`recentNutritionSummary` 从本地 DB 聚合近 7 日营养均值传入）
 
 # 你的角色
 
@@ -84,31 +86,54 @@ mobile-shared/
     │   ├── AppConfig.kt            # BaseURL/超时配置
     │   ├── Models.kt               # 数据模型（Stage 0.5 手动镜像，后续 proto codegen 替换）
     │   ├── BomiException.kt        # 业务异常 + ErrorCode 常量
-    │   ├── BomiSDK.kt              # SDK入口，create(tokenStorage) 返回 authRepo/foodRepo/planRepo
+    │   ├── BomiSDK.kt              # SDK入口，create(tokenStorage, localDietStorage, cloudSync, imageUploader) 返回 authRepo/foodRepo/planRepo
     │   ├── network/
     │   │   ├── ApiClient.kt        # ktor封装 + Token注入 + BaseApiResponse解包
     │   │   └── Endpoint.kt         # API路由常量
     │   ├── repository/
     │   │   ├── AuthRepository.kt   # wxLogin/phoneLogin/appleLogin/sendSms
-    │   │   ├── FoodRepository.kt   # recognize/logDiet/listDiet
-    │   │   └── PlanRepository.kt   # generate(profile, planType)
-    │   └── security/
-    │       └── TokenStorage.kt     # expect：saveAccessToken/getAccessToken/clear/newTraceId
-    └── androidMain/.../security/
-        └── TokenStorage.android.kt # actual：EncryptedSharedPreferences（需 init(context)）
+    │   │   ├── FoodRepository.kt   # recognize(imageUrl)/deleteImage(imageUrl)（D010：不再有 logDiet/listDiet）
+    │   │   └── PlanRepository.kt   # generate(profile, planType, recentNutritionSummary?)
+    │   ├── security/
+    │   │   └── TokenStorage.kt     # expect：saveAccessToken/getAccessToken/clear/newTraceId
+    │   ├── storage/
+    │   │   ├── LocalDietStorage.kt # expect：饮食打卡明细本地存储（D011，SQLDelight 实现）
+    │   │   └── CloudSync.kt        # expect：私有云同步（D011，坚果云 WebDAV 实现）
+    │   └── upload/
+    │       └── ImageUploader.kt    # expect：图片压缩+上传COS临时桶（D010）
+    └── androidMain/.../
+        ├── security/
+        │   └── TokenStorage.android.kt  # actual：EncryptedSharedPreferences（需 init(context)）
+        ├── storage/
+        │   ├── LocalDietStorage.android.kt  # actual：SQLDelight + SQLite（D011）
+        │   └── CloudSync.android.kt         # actual：坚果云 WebDAV + OkHttp3 + 分片断点续传（D011）
+        └── upload/
+            └── ImageUploader.android.kt     # actual：BitmapFactory 压缩 + COS 直传（D010）
 ```
 
-BomiSDK 用法：
+BomiSDK 用法（D009-D013 后注入 4 个依赖）：
 ```kotlin
-// App 启动时初始化
+// App 启动时初始化（注入 tokenStorage / localDietStorage / cloudSync / imageUploader）
 val tokenStorage = TokenStorage()
 tokenStorage.init(context)  // Android 必须先 init
-val sdk = BomiSDK.create(tokenStorage)
+val localDietStorage = LocalDietStorage(context)   // SQLDelight + SQLite（D011）
+val cloudSync = CloudSync(context)                 // 坚果云 WebDAV（D011）
+val imageUploader = ImageUploader(context)         // BitmapFactory 压缩 + COS 直传（D010）
+val sdk = BomiSDK.create(
+    tokenStorage = tokenStorage,
+    localDietStorage = localDietStorage,
+    cloudSync = cloudSync,
+    imageUploader = imageUploader,
+)
 // 登录
 val result = sdk.authRepository.wxLogin(code)
 sdk.saveToken(result.token)
-// 食物识别
-val foods = sdk.foodRepository.recognize(imageUrl)
+// 食物识别（D010 流程：压缩→上传COS临时桶→recognize→用户确认→deleteImage→存本地）
+val cosUrl = imageUploader.compressAndUpload(bitmap)   // 压缩 + 传 COS 临时桶
+val foods = sdk.foodRepository.recognize(cosUrl)       // VLM 识别
+// 用户确认后：
+sdk.foodRepository.deleteImage(cosUrl)                 // 删除 COS 临时图
+localDietStorage.logDiet(mealType, foods, loggedAt)    // 打卡明细存本地 SQLDelight（不走后端）
 // 登出
 sdk.logout()
 ```
@@ -142,7 +167,7 @@ Android 通过 Gradle 把 `mobile-shared` 作为子模块引入，直接调用 K
   ```
 - 直接 `import com.bomi.shared.BomiSDK`，无桥接成本（Kotlin 同语言）
 
-初始化示例（App 启动时一次，注意 `init(context)` 不能漏）：
+初始化示例（App 启动时一次，注意 `init(context)` 不能漏；D009-D013 后注入 4 个依赖）：
 ```kotlin
 // packages/android/app/src/main/java/com/bomi/app/BomiApp.kt
 package com.bomi.app
@@ -150,6 +175,9 @@ package com.bomi.app
 import android.app.Application
 import com.bomi.shared.BomiSDK
 import com.bomi.shared.security.TokenStorage
+import com.bomi.shared.storage.LocalDietStorage
+import com.bomi.shared.storage.CloudSync
+import com.bomi.shared.upload.ImageUploader
 
 class BomiApp : Application() {
     lateinit var sdk: BomiSDK
@@ -160,7 +188,16 @@ class BomiApp : Application() {
         val tokenStorage = TokenStorage()
         // Android 端必须先 init(context) 初始化 EncryptedSharedPreferences
         tokenStorage.init(this)
-        sdk = BomiSDK.create(tokenStorage)
+        // D009-D013：注入 4 个依赖
+        val localDietStorage = LocalDietStorage(this)   // SQLDelight + SQLite（D011）
+        val cloudSync = CloudSync(this)                 // 坚果云 WebDAV（D011）
+        val imageUploader = ImageUploader(this)         // BitmapFactory 压缩 + COS 直传（D010）
+        sdk = BomiSDK.create(
+            tokenStorage = tokenStorage,
+            localDietStorage = localDietStorage,
+            cloudSync = cloudSync,
+            imageUploader = imageUploader,
+        )
     }
 }
 ```
@@ -242,6 +279,8 @@ class LoginViewModel(
 
 # Stage 1 任务（接到本 prompt 后执行）
 
+> D009-D013 隐私架构修订后，饮食打卡明细完全本地化（D011），后端无 diet 接口；食物识别走 D010 COS 临时桶流程。
+
 ### 1. 新建 Android Studio 项目
 - Compose + Kotlin + minSdk 26（Android 8+）
 - 包名 `com.bomi.app`
@@ -255,41 +294,68 @@ class LoginViewModel(
   project(":mobile-shared").projectDir = File(rootDir, "../../mobile-shared")
   ```
 - 在 `app/build.gradle.kts` 加 `implementation(project(":mobile-shared"))`
-- 验证 `import com.bomi.shared.BomiSDK` 可用，`BomiSDK.create(...)` 可调用
+- 验证 `import com.bomi.shared.BomiSDK` 可用，`BomiSDK.create(...)` 可调用（注意：D009-D013 后 `create()` 需注入 4 个依赖）
 
 ### 3. TokenStorage 初始化
 - `mobile-shared/androidMain/.../TokenStorage.android.kt` 已实现 `EncryptedSharedPreferences`
 - App 启动时（`BomiApp.onCreate()`）必须调 `tokenStorage.init(this)`，否则 token 无法持久化
 - 禁止用明文 `SharedPreferences` 存 token
 
-### 4. Compose UI 各页面
+### 4. 实现 LocalDietStorage 的 Android actual（D011）
+- 在 `mobile-shared/androidMain/.../storage/LocalDietStorage.android.kt` 实现 SQLDelight + SQLite
+- 承载饮食打卡明细本地存储：`logDiet(mealType, foods, loggedAt)` / `listDiet(pageNum, pageSize)` / `recentNutritionSummary(days)`
+- 后端**不再提供 diet 接口**，所有打卡数据读写走本地 SQLDelight
+- 凭证（坚果云账号等）用 KeyStore + DataStore 加密存储
+
+### 5. 实现 CloudSync 的 Android actual（D011）
+- 在 `mobile-shared/androidMain/.../storage/CloudSync.android.kt` 实现坚果云 WebDAV
+- 用 OkHttp3 发 WebDAV 请求，支持分片断点续传
+- 用 WorkManager 注册后台定时同步任务（饮食打卡数据备份到坚果云）
+- 坚果云账号凭证存 KeyStore + DataStore，禁止明文
+
+### 6. 实现 ImageUploader 的 Android actual（D010）
+- 在 `mobile-shared/androidMain/.../upload/ImageUploader.android.kt` 实现
+- 流程：`BitmapFactory` 解码 → 压缩（质量/尺寸）→ 直传腾讯云 COS 临时桶
+- 返回 COS 临时 URL 供 `food/recognize` 调用
+- 临时图 5 分钟生命周期兜底（COS 桶生命周期规则 + 主动 `deleteImage`）
+
+### 7. Compose UI 各页面
 - **登录页**（`features/auth/LoginScreen.kt`）：三个按钮（微信 / 手机号 / Google），点击回调占位或接 ViewModel
 - **首页**（`features/home/HomeScreen.kt`）：拍照入口 + 底部导航骨架
-- **识别结果页**（`features/food/FoodRecognitionScreen.kt`）：展示识别到的食物列表
-- **打卡列表页**（`features/food/DietListScreen.kt`）：历史打卡记录
+- **识别结果页**（`features/food/FoodRecognitionScreen.kt`）：展示识别到的食物列表 + 用户确认按钮
+- **打卡列表页**（`features/food/DietListScreen.kt`）：历史打卡记录（**从本地 SQLDelight 读取，不调后端**）
 - **计划页**（`features/plan/PlanScreen.kt`）：健康计划展示
-- 每个页面配对应 `ViewModel`，调用 `BomiSDK` 各 Repository，`StateFlow` 驱动 UI
+- 每个页面配对应 `ViewModel`，`StateFlow` 驱动 UI
 
-### 5. ViewModel 调用 BomiSDK
+### 8. ViewModel 调用 BomiSDK（D010/D011 新流程）
 - `LoginViewModel`：`wxLogin` / `phoneLogin` / `sendSms` + `googleLogin`（占位）
-- `FoodRecognitionViewModel`：调 `sdk.foodRepository.recognize(imageUrl)`
-- `DietListViewModel`：调 `sdk.foodRepository.listDiet(pageNum, pageSize)`
-- `PlanViewModel`：调 `sdk.planRepository.generate(...)`
+- `FoodRecognitionViewModel`（D010 流程）：
+  1. `imageUploader.compressAndUpload(bitmap)` → 拿到 COS 临时 URL
+  2. `sdk.foodRepository.recognize(cosUrl)` → VLM 识别返回 foods
+  3. 用户确认 → `sdk.foodRepository.deleteImage(cosUrl)` 删除 COS 临时图
+  4. `localDietStorage.logDiet(mealType, foods, loggedAt)` 打卡明细存本地 SQLDelight
+  5. 用户取消 → 同样调 `deleteImage(cosUrl)` 清理临时图
+- `DietListViewModel`：调 `localDietStorage.listDiet(pageNum, pageSize)`（**本地读取，不调后端 diet 接口**）
+- `PlanViewModel`：调 `sdk.planRepository.generate(profile, planType, recentNutritionSummary)`，其中 `recentNutritionSummary` 从 `localDietStorage.recentNutritionSummary(7)` 聚合近 7 日营养均值
 - 登录成功调 `sdk.saveToken(result.token)`，登出调 `sdk.logout()`
 
-### 6. Application + 主题 + 资源
-- `BomiApp.kt`（Application）：初始化 `TokenStorage.init(context)` + `BomiSDK.create(...)`
+### 9. Application + 主题 + 资源
+- `BomiApp.kt`（Application）：初始化 `TokenStorage.init(context)` + 构造 `LocalDietStorage` / `CloudSync` / `ImageUploader` + `BomiSDK.create(tokenStorage, localDietStorage, cloudSync, imageUploader)` 注入 4 个依赖
 - `MainActivity.kt`：Compose 入口，`setContent { BomiTheme { NavHost(...) } }`
 - `common/Theme.kt`：Material3 主题，支持深浅模式 + 动态取色
 - `res/values/strings.xml`：文案抽离，禁止硬编码中文
 
-### 7. 完成后向整合方报告
+### 10. 完成后向整合方报告
 - 分支名（应为 `feat/android-stage1`）
 - commit 列表：`git log main..HEAD --oneline`
 - 改动文件清单：`git diff main...HEAD --stat`
 - 是否动过 `proto/` / `mobile-shared/` 结构（应为否；`androidMain` actual 实现除外）
 - KMP 模块是否成功集成（`./gradlew :app:assembleDebug` 通过）
 - TokenStorage 是否调用了 `init(context)`（App 启动时必须）
+- LocalDietStorage / CloudSync / ImageUploader 三个 actual 是否实现（D009-D013）
+- BomiSDK.create() 是否注入 4 个依赖（tokenStorage / localDietStorage / cloudSync / imageUploader）
+- 食物识别是否走 D010 流程（压缩→COS临时桶→recognize→确认→deleteImage→存本地）
+- 是否还有调后端 diet 接口的代码（应为否，D011 后完全本地化）
 - AI Key 是否走 server 转发（Android 侧无明文 Key）
 - 双端对齐自检结果（与 ios 端功能/异常语义对等）
 

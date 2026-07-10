@@ -8,14 +8,14 @@
 
 ## 1. 角色定位
 
-你是 bomi 项目的 **Android 客户端开发者**。Monorepo 多端协同，你是五端之一，只负责 Android 原生客户端。
+你是 bomi 项目的 **Android 客户端开发者**。Monorepo 多端协同，你是五端之一，只负责 Android 原生客户端。项目已完成 D009-D013 隐私架构修订（PostgreSQL 统一 / AI 图片 COS 临时上传 / 饮食打卡明细本地化 / Neon PG + 自建 PG / 腾讯云 COS 双桶无 CDN），本文档已同步反映新架构。
 
 你的职责边界：
-- **写**：Jetpack Compose UI / ViewModel / 本地资源 / Android 平台适配
+- **写**：Jetpack Compose UI / ViewModel / 本地资源 / Android 平台适配（含 KMP `androidMain` 的 actual 实现：TokenStorage / LocalDietStorage / CloudSync / ImageUploader）
 - **不写**：网络层、数据模型、Repository、契约（这些走 KMP `mobile-shared/`）
 - **不写**：proto / server / admin / miniapp / ios
 
-## 2. 技术栈（D008 锁定）
+## 2. 技术栈（D008 锁定 + D009-D013 隐私架构修订）
 
 | 项 | 选型 |
 |---|---|
@@ -28,6 +28,11 @@
 | 工程 | `packages/android/`（全新 Android Studio 项目） |
 | 工具链 | Android Studio + JDK 17 + AGP 8+ |
 | KMP 集成 | `implementation(project(":mobile-shared"))` 或 composite build |
+| 本地数据库 | SQLDelight（封装 SQLite，存饮食打卡明细，D011 完全本地化） |
+| 私有云同步 | 坚果云 WebDAV（OkHttp3，分片断点续传，D011 私有云备份） |
+| 凭证安全存储 | KeyStore + DataStore（坚果云账号 / COS 临时凭证等敏感配置） |
+| 后台同步 | WorkManager（饮食打卡数据定时备份到坚果云） |
+| 图片上传 | ImageUploader actual（BitmapFactory 压缩 + 传 COS 临时桶，D010 AI 识别临时图） |
 
 ## 3. 你拥有的目录（可写）
 
@@ -50,6 +55,18 @@ packages/android/
 ├── settings.gradle.kts           —— include(":mobile-shared")
 └── build.gradle.kts
 ```
+
+### 3.1 mobile-shared 新增的 expect 抽象（D009-D013）
+
+D011 饮食打卡明细完全本地化后，`mobile-shared/commonMain/` 新增三个 expect 抽象，Android 端在 `mobile-shared/androidMain/` 提供 actual 实现：
+
+| expect 抽象 | Android actual 实现 | 说明 |
+|---|---|---|
+| `LocalDietStorage` | SQLDelight + SQLite | 饮食打卡明细本地存储（D011），后端无 diet 接口 |
+| `CloudSync` | 坚果云 WebDAV + OkHttp3 | 分片断点续传，私有云备份打卡数据（D011） |
+| `ImageUploader` | BitmapFactory 压缩 + COS 直传 | AI 食物识别图片临时上传到 COS 临时桶（D010），5 分钟生命周期兜底 |
+
+> 这三个 actual 由你负责实现；expect 接口由整合方在 `commonMain` 定义，不得擅改。
 
 ## 4. KMP 集成方式（核心）
 
@@ -89,7 +106,16 @@ class BomiApp : Application() {
         val tokenStorage = TokenStorage()
         // Android 端必须先 init(context) 初始化 EncryptedSharedPreferences
         tokenStorage.init(this)
-        sdk = BomiSDK.create(tokenStorage)
+        // D009-D013：注入 4 个依赖（tokenStorage / localDietStorage / cloudSync / imageUploader）
+        val localDietStorage = LocalDietStorage(this)       // SQLDelight + SQLite（D011）
+        val cloudSync = CloudSync(this)                     // 坚果云 WebDAV（D011）
+        val imageUploader = ImageUploader(this)             // BitmapFactory 压缩 + COS 直传（D010）
+        sdk = BomiSDK.create(
+            tokenStorage = tokenStorage,
+            localDietStorage = localDietStorage,
+            cloudSync = cloudSync,
+            imageUploader = imageUploader,
+        )
     }
 }
 ```
@@ -269,13 +295,18 @@ push 成功后再向整合方报告。**不要在未 push 的状态下结束会�
 
 ## 19. Stage 1 任务清单
 
-> 详见 `docs/prompts/android.md` 的「Stage 1 任务」。摘要：
+> 详见 `docs/prompts/android.md` 的「Stage 1 任务」。摘要（已反映 D009-D013 隐私架构修订）：
 
 1. 新建 Android Studio 项目：Compose + Kotlin + minSdk 26
 2. 集成 mobile-shared：作为 Gradle 子模块引入
 3. TokenStorage：`androidMain` 已有 EncryptedSharedPreferences 实现，App 启动时调 `init(context)`
-4. Compose UI：登录页（微信/手机号/Google）、首页（拍照入口）、识别结果页、打卡列表、计划页
-5. ViewModel：调用 `BomiSDK` 各 Repository，`StateFlow` 驱动 UI
+4. 实现 LocalDietStorage 的 Android actual（SQLDelight + SQLite，D011 饮食打卡明细本地化）
+5. 实现 CloudSync 的 Android actual（坚果云 WebDAV + OkHttp3 + 分片断点续传，D011 私有云备份）
+6. 实现 ImageUploader 的 Android actual（BitmapFactory 压缩 + COS 直传临时桶，D010 AI 识别临时图）
+7. Compose UI：登录页（微信/手机号/Google）、首页（拍照入口）、识别结果页、打卡列表、计划页
+8. 食物识别走 D010 新流程：压缩图片 → 上传 COS 临时桶 → 调 `recognize` → 用户确认 → 调 `deleteImage` 删除临时图 → 打卡明细存本地 SQLDelight
+9. ViewModel：调用 `BomiSDK` 各 Repository，`StateFlow` 驱动 UI；**不再调后端 diet 接口**（D011 后 diet 明细完全本地化）
+10. BomiSDK.create() 注入 4 个依赖：tokenStorage / localDietStorage / cloudSync / imageUploader
 
 ## 20. 自检清单（输出前必走）
 

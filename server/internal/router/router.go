@@ -51,10 +51,13 @@ func Setup(cfg *config.Config, logger *zap.Logger) *gin.Engine {
 		authed.Use(middleware.JWTAuth(cfg.JWT.Secret))
 		{
 			// authed.GET("/user/profile", ...)
-			// authed.POST("/food/recognize", ...)
-			// authed.POST("/diet/log", ...)
-			// authed.GET("/plan/generate", ...)
+			// 食物识别（AI）
+			// authed.POST("/ai/food/recognize", ...)     // 传 image_key 调 VLM 识别
+			// authed.POST("/ai/food/delete-image", ...)   // 用户确认打卡后删除 COS 临时图
+			// 健康计划生成（AI）
+			// authed.POST("/ai/plan/generate", ...)       // 传健康档案+近期营养汇总
 			// authed.POST("/ai/chat", ...)
+			// 注：饮食打卡明细完全本地化（D011），后端不提供 diet 接口
 			_ = authed
 		}
 

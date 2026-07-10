@@ -1,7 +1,9 @@
 # bomi · 接口契约（api-contract.md）
 
-> 整合方维护，单一版本。三端联调以此为准，与 `packages/shared/types/*` 字段一致。
-> 任何接口变更：先改 shared/types → 更新本文件 → 同步 server → 同步前端，三处同提交。
+> 整合方维护，单一版本。五端联调以此为准。
+> **类型来源（D008 后）**：`proto/` 目录（protobuf 单一来源），通过 `make proto` 生成 Go/Kotlin/TS 代码到 `gen/`。
+> **接口变更流程**：先改 `proto/` → `buf generate` → 更新本文件 → 同步 server + 前端，统一由整合方执行。
+> **D011 修订**：后端不再有饮食打卡接口（diet 模块完全删除），饮食打卡明细完全本地化（SQLDelight + 私有云同步）。
 
 ## 通用约定
 
@@ -70,25 +72,17 @@ interface BaseApiResponse<T> {
 
 ---
 
-## 三、Diet 饮食打卡模块
+## 三、Diet 饮食打卡模块（D011：已移除，完全本地化）
 
-### POST `/api/diet/upload` · 上传食物图片
-- **请求**：`multipart/form-data`，字段 `file`
-- **响应**：`BaseApiResponse<{ url: string }>`（OSS URL）
-
-### GET `/api/diet/records` · 打卡记录列表
-- **请求**：`DietRecordListRequest`（query）
-- **响应**：`BaseApiResponse<DietRecordListResponse>`
-
-### GET `/api/diet/records/:id` · 打卡记录详情
-- **响应**：`BaseApiResponse<DietRecordItem>`
-
-### GET `/api/diet/daily-summary` · 每日营养汇总
-- **请求**：`{ startDate: string; endDate: string }`（query，YYYY-MM-DD）
-- **响应**：`BaseApiResponse<DailyNutritionSummary[]>`
-
-### DELETE `/api/diet/records/:id` · 删除打卡记录
-- **响应**：`BaseApiResponse<null>`
+> **D011 决策**：饮食打卡明细完全本地化，后端不存储任何用户饮食隐私数据。
+>
+> **客户端实现方式**：
+> - 完整饮食明细存设备本地 SQLDelight（封装 SQLite）
+> - 跨设备同步走用户私有云（iOS iCloud CloudKit / Android 坚果云 WebDAV），不走后端
+> - 查询/增删打卡记录通过 `mobile-shared` 的 `LocalDietStorage` 接口（expect/actual）
+> - 后端无 `/api/diet/*` 路由，无 `DietService` proto 定义
+>
+> **AI 计划生成的数据来源**：App 从本地 DB 聚合近7日营养均值（4个匿名数字 + 统计天数），作为 `RecentNutritionSummary` 传后端，后端用完即丢不入库（见五、AI 接口）。
 
 ---
 
@@ -108,15 +102,27 @@ interface BaseApiResponse<T> {
 
 ## 五、AI 接口（前端经 server 转发，禁直连供应商）
 
-### POST `/api/ai/food/recognize` · 食物识别
-- **请求**：`FoodRecognizeRequest`
-- **响应**：`BaseApiResponse<FoodRecognizeResponse>`
-- **说明**：仅识别返回结果，不落库；用户确认后调用 `/api/diet/records` 落库
+### POST `/api/ai/food/recognize` · 食物识别（D010 流程）
+- **请求**：`FoodRecognizeRequest`（含 `image_key` + 可选 `meal_type`）
+- **响应**：`BaseApiResponse<FoodRecognizeResponse>`（含 `recognize_id` + `image_key` + `foods[]` + `total_nutrition`）
+- **流程**（D010）：
+  1. 前端压缩图片 → 上传 COS 临时桶 → 获得 `imageKey`
+  2. 前端调本接口传 `imageKey`
+  3. 后端用 `imageKey` 生成预签名 URL → 调 VLM 识别 → 返回文字营养数据 + `imageKey`
+  4. 用户在前端确认/编辑识别结果
+  5. 用户点"确认打卡" → 前端调 `delete-image` 接口 → 后端删 COS 原图
+  6. 兜底：5 分钟未删除由 COS 生命周期规则自动清理
+- **关键约束**：图片不落地数据库、不缓存原图、不做日志留存
 
-### POST `/api/ai/plan/generate` · 生成健康计划
-- **请求**：`GeneratePlanRequest`
+### POST `/api/ai/food/delete-image` · 删除识别图片（D010）
+- **请求**：`DeleteRecognizeImageRequest`（含 `image_key`）
+- **响应**：`BaseApiResponse<DeleteRecognizeImageResponse>`（含 `success`）
+- **触发时机**：用户确认打卡后由前端调用，删除 COS 临时桶原图
+
+### POST `/api/ai/plan/generate` · 生成健康计划（D011）
+- **请求**：`GeneratePlanRequest`（含 `HealthProfile` + 可选 `RecentNutritionSummary`）
 - **响应**：`BaseApiResponse<GeneratePlanResponse>`
-- **说明**：服务端调用 ai 层生成，并落库为 PlanItem
+- **说明**：`RecentNutritionSummary` 为 App 从本地 DB 聚合的近7日营养均值（匿名数字，不含食物明细）；后端调 LLM 生成计划后**用完即丢，不入库**
 
 ### POST `/api/ai/chat` · 通用 AI 对话（可选，支持流式）
 - **请求**：`AiRequest`
@@ -135,16 +141,16 @@ interface BaseApiResponse<T> {
 - **请求**：`UserUpdateRequest`
 - **响应**：`BaseApiResponse<UserItem>`
 
-### GET `/api/admin/diet/records` · 全平台打卡记录（运营审计）
-- **请求**：`DietRecordListRequest` + `{ userId?: number }`
-- **响应**：`BaseApiResponse<DietRecordListResponse>`
+### GET `/api/admin/diet/records` · 全平台打卡记录（D011：已移除）
+> **D011**：饮食打卡明细完全本地化，后端不存储，管理后台不再有此功能。
 
 ### GET `/api/admin/stats/overview` · 运营总览
-- **响应**：`BaseApiResponse<{ totalUsers: number; todayRecords: number; totalCalls: number; totalTokens: number }>`
+- **响应**：`BaseApiResponse<{ totalUsers: number; totalCalls: number; totalTokens: number }>`
+- **说明**：D011 后移除 `todayRecords` 字段（后端无打卡数据）
 
 ---
 
-## 错误码（详见 `packages/shared/src/constants/error-code.ts`）
+## 错误码（详见 `proto/bomi/enum/error_code.proto`，D008 后单一来源为 proto）
 
 | code | 含义 | 前端处理 |
 |---|---|---|

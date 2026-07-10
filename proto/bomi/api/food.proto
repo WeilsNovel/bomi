@@ -9,43 +9,11 @@ option go_package = "github.com/WeilsNovel/bomi/gen/go/bomi/api";
 option java_package = "bomi.kotlin";
 option java_multiple_files = true;
 
-// 打卡列表响应包装
-message DietRecordListApiResponse {
+// 删除识别图片响应包装
+message DeleteRecognizeImageApiResponse {
   int32 code = 1;
   string message = 2;
-  bomi.model.DietRecordListResponse data = 3;
+  bomi.model.DeleteRecognizeImageResponse data = 3;
   string trace_id = 4;
   int64 timestamp = 5;
-}
-
-// 每日营养汇总响应包装
-message DietSummaryApiResponse {
-  int32 code = 1;
-  string message = 2;
-  bomi.model.DailyNutritionSummary data = 3;
-  string trace_id = 4;
-  int64 timestamp = 5;
-}
-
-// 每日营养汇总查询入参（date 作为 query param）
-message DietSummaryRequest {
-  // 查询日期 YYYY-MM-DD
-  string date = 1;
-}
-
-// 饮食打卡服务
-service DietService {
-  // 获取打卡记录列表
-  rpc GetDietRecords(bomi.model.DietRecordListRequest) returns (DietRecordListApiResponse) {
-    option (google.api.http) = {
-      get: "/api/diet/records"
-    };
-  }
-
-  // 获取每日营养汇总
-  rpc GetDietSummary(DietSummaryRequest) returns (DietSummaryApiResponse) {
-    option (google.api.http) = {
-      get: "/api/diet/summary"
-    };
-  }
 }

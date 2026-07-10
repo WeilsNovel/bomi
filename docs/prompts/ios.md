@@ -218,35 +218,61 @@ final class LoginViewModel {
   - `newTraceId` → `NSUUID().UUIDString()`（已实现，保留）
 - 禁止用 `NSUserDefaults` 明文存 token
 
-### 3. 迁移 Networking/
+### 3. 三个 expect actual 实现（D010/D011）
+
+D011 饮食打卡明细完全本地化（后端无 diet 接口）、D010 AI 食物识别图片临时上传 COS。在 `mobile-shared/src/iosMain/` 落地三个 actual：
+
+- **LocalDietStorage**（SQLDelight + SQLite，D011）
+  - 饮食打卡明细本地持久化（写入 / 查询近 N 日 / 聚合营养均值）
+  - 替代原后端 `diet/log`、`diet/list` 接口，不再调任何后端 diet 接口
+- **CloudSync**（CloudKit 私有数据库，D011）
+  - 本地数据跨设备同步（iCloud 私有数据库）
+- **ImageUploader**（UIImage 压缩 + COS 临时桶直传，D010）
+  - 图片压缩后直传腾讯云 COS AI 临时桶，返回临时 URL
+  - 用户确认识别结果后调 `deleteImage` 删除，5 分钟生命周期兜底
+
+> expect 接口由整合方在 `commonMain` 定义，iOS 侧只写 `iosMain` actual；expect 接口不得擅改。
+
+### 4. 迁移 Networking/
 - 删除原 `packages/ios/Bomi/Networking/APIClient.swift`（不再自建网络层）
 - 改为调用 `BomiSDK.apiClient` / 各 Repository
 - 删除 `Networking/Endpoints.swift`、`Networking/BomiError.swift`（路由和错误码走 KMP `Endpoint` / `BomiException`）
 
-### 4. 迁移 Shared/Models
+### 5. 迁移 Shared/Models
 - 删除 `packages/ios/Bomi/Shared/Models/` 下的手动 Swift 镜像（`User.swift` / `Food.swift` / `Plan.swift` / `Ai.swift` / `Api.swift` / `Enum.swift`）
 - 改用 KMP 导出的类型（`UserItem` / `FoodItem` / `PlanItem` 等直接来自 `mobile_shared`）
 - 删除 `Shared/Constants/`（`ErrorCode.swift` / `AiApiPath.swift`，错误码和路径走 KMP）
 
-### 5. SwiftUI View 保留 + 迁移
+### 6. SwiftUI View 保留 + 迁移
 - `Features/Auth/LoginView.swift` 保留 UI，`LoginViewModel.swift` 迁移为调用 `BomiSDK.authRepository`
   - 三个登录方法：`wxLogin` / `phoneLogin` / `appleLogin` + `sendSms`
   - 登录成功调 `sdk.saveToken(result.token)`
-- `App/BomiApp.swift` 改为初始化 `BomiSDK` 并注入
+- `App/BomiApp.swift` 改为初始化 `BomiSDK`，注入 4 个依赖：`tokenStorage` / `localDietStorage` / `cloudSync` / `imageUploader`
 
-### 6. 新增页面
-- 食物拍照识别页：`Features/Food/FoodRecognitionView.swift` + ViewModel，调 `sdk.foodRepository.recognize(imageUrl:)`
-- 饮食打卡列表页：`Features/Food/DietListView.swift` + ViewModel，调 `sdk.foodRepository.listDiet(pageNum:pageSize:)`
-- 健康计划页：`Features/Plan/PlanView.swift` + ViewModel，调 `sdk.planRepository.generate(...)`
+### 7. 新增页面（D010/D011 新流程）
 
-### 7. 完成后向整合方报告
+- **食物拍照识别页**（`Features/Food/FoodRecognitionView.swift` + ViewModel，D010 流程）：
+  1. `ImageUploader` 压缩图片 → 上传 COS 临时桶，拿到临时 URL
+  2. 调 `sdk.foodRepository.recognize(imageUrl:)` 识别
+  3. 用户确认识别结果
+  4. 调 `sdk.foodRepository.deleteImage(imageUrl:)` 删除临时图片（5 分钟生命周期兜底）
+  5. 确认后的打卡明细写入本地 `LocalDietStorage`（SQLDelight）
+- **饮食打卡列表页**（`Features/Food/DietListView.swift` + ViewModel，D011）：
+  - 从本地 `LocalDietStorage` 读取，不再调后端 `diet/list` 接口
+  - 支持按日期 / 餐次查询
+- **健康计划页**（`Features/Plan/PlanView.swift` + ViewModel）：
+  - 调 `sdk.planRepository.generate(...)`，传 `RecentNutritionSummary`（从本地 `LocalDietStorage` 聚合近 7 日营养均值，D011）
+
+### 8. 完成后向整合方报告
 - 分支名（应为 `feat/ios-stage1`）
 - commit 列表：`git log main..HEAD --oneline`
 - 改动文件清单：`git diff main...HEAD --stat`
 - 是否动过 `proto/` / `mobile-shared/` 结构（应为否；`iosMain` actual 实现除外）
 - KMP framework 是否成功集成（编译通过）
 - TokenStorage 是否已替换为 Keychain
+- 三个 actual（LocalDietStorage / CloudSync / ImageUploader）是否已实现
 - AI Key 是否走 server 转发（iOS 侧无明文 Key）
+- 饮食打卡是否走本地 SQLDelight（无后端 diet 接口调用）
 - 双端对齐自检结果（与 android 端功能/异常语义对等）
 
 # 会话衔接

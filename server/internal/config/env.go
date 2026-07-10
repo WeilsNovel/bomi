@@ -21,8 +21,8 @@ func Load() (*Config, error) {
 		},
 		DB: DBConfig{
 			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getEnv("DB_PORT", "3306"),
-			User:     getEnv("DB_USER", "root"),
+			Port:     getEnv("DB_PORT", "5432"), // D009: PostgreSQL 默认端口
+			User:     getEnv("DB_USER", "postgres"),
 			Password: getEnv("DB_PASSWORD", ""),
 			DBName:   getEnv("DB_NAME", "bomi"),
 		},
@@ -65,6 +65,14 @@ func Load() (*Config, error) {
 			ClientID:       getEnv("APPLE_CLIENT_ID", ""),
 			KeyID:          getEnv("APPLE_KEY_ID", ""),
 			PrivateKeyPath: getEnv("APPLE_PRIVATE_KEY_PATH", ""),
+		},
+		COS: COSConfig{
+			SecretID:              getEnv("COS_SECRET_ID", ""),
+			SecretKey:             getEnv("COS_SECRET_KEY", ""),
+			Region:                getEnv("COS_REGION", "ap-guangzhou"),
+			MaterialBucket:        getEnv("COS_MATERIAL_BUCKET", ""),
+			AITempBucket:          getEnv("COS_AI_TEMP_BUCKET", ""),
+			AITempURLExpireMinutes: getIntEnv("COS_AI_TEMP_URL_EXPIRE_MINUTES", 10),
 		},
 	}
 

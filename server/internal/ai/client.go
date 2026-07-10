@@ -47,16 +47,36 @@ func (c *Client) Chat(ctx context.Context, prompt string) (string, error) {
 	return resp.Choices[0].Message.Content, nil
 }
 
-// RecognizeFood 食物识别（视觉模型，Stage 1 骨架）
-// 后续接入 proto FoodRecognizeRequest，图片以 base64 / URL 形式传入 VLM。
+// RecognizeFood 食物识别（视觉模型）
+// D010 流程：
+//   1. 前端上传图片到 COS 临时桶，获得 image_key
+//   2. 前端调 FoodRecognize 接口传 image_key
+//   3. 后端用 image_key 生成预签名 URL，传给 VLM 识别
+//   4. 返回文字营养数据（FoodItem[]），图片在用户确认后删除
+//
+// imageURL 参数为 COS 预签名 URL（由 storage.Client.GetAITempImageURL 生成）
 func (c *Client) RecognizeFood(ctx context.Context, imageURL string, prompt string) (string, error) {
 	resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model:       c.cfg.Model,
 		Temperature: c.cfg.Temperature,
 		MaxTokens:   c.cfg.MaxTokens,
 		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleUser, Content: prompt},
-			{Role: openai.ChatMessageRoleUser, Content: imageURL},
+			{
+				Role: openai.ChatMessageRoleUser,
+				MultiContent: []openai.ChatMessagePart{
+					{
+						Type: openai.ChatMessagePartTypeText,
+						Text: prompt,
+					},
+					{
+						Type: openai.ChatMessagePartTypeImageURL,
+						ImageURL: &openai.ChatMessageImageURL{
+							URL:    imageURL,
+							Detail: openai.ImageURLDetailHigh,
+						},
+					},
+				},
+			},
 		},
 	})
 	if err != nil {

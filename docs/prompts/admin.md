@@ -49,7 +49,7 @@ bomi 是一个「AI 食物拍照识别 + 饮食打卡 + 健康计划推荐」的
 4. **类型来源接入**：仓库根 `make proto` 生成 `gen/ts/`，在 `vite.config.ts` / `tsconfig.json` 配置路径别名（如 `@gen`）引用，禁止单独定义公共类型。
 5. **配置**：创建 `config/env.ts`（`apiBaseUrl`、`useAiProxy: true`、`tokenKey` 等）+ `config/constants.ts`（分页默认值、状态枚举映射、路由路径等）。
 6. **路由与布局**：`router/index.ts`（路由表参数化）+ `layout/`（侧边栏 + 顶栏骨架）+ `store/`（user / permission / menu）+ 登录页。
-7. **业务页面骨架**：用户管理页、食物记录管理页（表格 + 分页 + 查询表单，对接 `gen/ts/` 类型；接口联调留 Stage 2，server 端 `/api/v1/admin/*` 在 Stage 2 才接入鉴权 + 管理员权限）。
+7. **业务页面骨架**：用户管理页（表格 + 分页 + 查询表单，对接 `gen/ts/` 类型；接口联调留 Stage 2，server 端 `/api/v1/admin/*` 在 Stage 2 才接入鉴权 + 管理员权限）。
 8. **脚本填充**：`package.json` 的 `dev` / `build` / `typecheck`（`vue-tsc --noEmit`）/ `lint` 脚本，替换原 TODO。
 
 # 注意事项

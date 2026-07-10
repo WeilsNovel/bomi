@@ -29,6 +29,15 @@ message FoodRecognizeApiResponse {
   int64 timestamp = 5;
 }
 
+// 删除识别图片响应包装
+message DeleteRecognizeImageApiResponse {
+  int32 code = 1;
+  string message = 2;
+  bomi.model.DeleteRecognizeImageResponse data = 3;
+  string trace_id = 4;
+  int64 timestamp = 5;
+}
+
 // 计划生成响应包装
 message GeneratePlanApiResponse {
   int32 code = 1;
@@ -48,7 +57,7 @@ service AiService {
     };
   }
 
-  // 食物识别
+  // 食物识别（传 image_key，后端调 VLM 识别，返回文字营养数据）
   rpc FoodRecognize(bomi.model.FoodRecognizeRequest) returns (FoodRecognizeApiResponse) {
     option (google.api.http) = {
       post: "/api/ai/food/recognize"
@@ -56,7 +65,16 @@ service AiService {
     };
   }
 
-  // 健康计划生成
+  // 删除识别图片（用户确认打卡后调用，删除 COS 临时桶原图）
+  // 兜底：COS 临时桶生命周期规则 5 分钟自动清理未删除的图片
+  rpc DeleteRecognizeImage(bomi.model.DeleteRecognizeImageRequest) returns (DeleteRecognizeImageApiResponse) {
+    option (google.api.http) = {
+      post: "/api/ai/food/delete-image"
+      body: "*"
+    };
+  }
+
+  // 健康计划生成（传健康档案 + 近期营养汇总，后端调 LLM 生成，用完即丢不入库）
   rpc GeneratePlan(bomi.model.GeneratePlanRequest) returns (GeneratePlanApiResponse) {
     option (google.api.http) = {
       post: "/api/ai/plan/generate"

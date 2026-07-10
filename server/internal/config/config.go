@@ -10,6 +10,7 @@ type Config struct {
 	SMS    SMSConfig
 	Wechat WechatConfig
 	Apple  AppleConfig
+	COS    COSConfig
 }
 
 // ServerConfig 服务端配置
@@ -74,8 +75,22 @@ type WechatConfig struct {
 
 // AppleConfig Apple Sign In 配置
 type AppleConfig struct {
-	TeamID           string
-	ClientID         string
-	KeyID            string
-	PrivateKeyPath   string
+	TeamID         string
+	ClientID       string
+	KeyID          string
+	PrivateKeyPath string
+}
+
+// COSConfig 腾讯云 COS 配置（双桶：永久素材桶 + AI 临时图片桶）
+// D013：不接 CDN，使用 COS 原生域名直出
+type COSConfig struct {
+	SecretID string
+	SecretKey string
+	Region    string
+	// 永久素材桶（运营海报/主题素材，长期存储）
+	MaterialBucket string
+	// AI 临时图片桶（食物识别用，5 分钟生命周期自动清理）
+	AITempBucket string
+	// 临时图片 URL 有效期分钟数（默认 10 分钟）
+	AITempURLExpireMinutes int
 }

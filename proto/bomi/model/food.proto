@@ -40,80 +40,36 @@ message FoodItem {
 }
 
 // 食物识别请求入参（前端 → server）
+// 图片先上传 COS 临时桶获取 image_key，再传 key 调识别
 message FoodRecognizeRequest {
-  // 图片 URL（已上传后），或本次上传的临时标识
-  string image_url = 1;
-  // 用餐类型
+  // COS 临时图片 key（前端上传后获得）
+  string image_key = 1;
+  // 用餐类型（可选，用于辅助识别上下文）
   MealType meal_type = 2;
-  // 拍照时间（缺省用服务端时间）
-  optional string taken_at = 3;
 }
 
 // 食物识别响应（server → 前端）
 message FoodRecognizeResponse {
-  // 识别 ID（用于关联打卡记录）
+  // 识别 ID（本次识别唯一标识，用于关联删除图片）
   string recognize_id = 1;
+  // COS 临时图片 key（回传前端，用户确认后调 DeleteRecognizeImage 删除）
+  string image_key = 2;
   // 识别到的食物列表
-  repeated FoodItem foods = 2;
+  repeated FoodItem foods = 3;
   // 本次总营养素
-  NutritionInfo total_nutrition = 3;
+  NutritionInfo total_nutrition = 4;
   // AI 识别耗时 ms
-  int32 duration_ms = 4;
-  // 识别日期 YYYY-MM-DD
-  string date = 5;
+  int32 duration_ms = 5;
 }
 
-// 饮食打卡记录（落库 + 前端展示）
-message DietRecordItem {
-  int32 id = 1;
-  int32 user_id = 2;
-  // 用餐类型
-  MealType meal_type = 3;
-  // 图片 URL
-  string image_url = 4;
-  // 识别结果摘要
-  repeated FoodItem foods = 5;
-  // 本次总营养素
-  NutritionInfo total_nutrition = 6;
-  // 拍照日期 YYYY-MM-DD
-  string date = 7;
-  // 拍照时间
-  string taken_at = 8;
-  string created_at = 9;
+// 删除识别图片请求（用户确认打卡后调用，删除 COS 临时桶原图）
+message DeleteRecognizeImageRequest {
+  // 要删除的 COS 临时图片 key
+  string image_key = 1;
 }
 
-// 打卡列表查询入参
-message DietRecordListRequest {
-  int32 page_num = 1;
-  int32 page_size = 2;
-  // 单日筛选 YYYY-MM-DD
-  optional string date = 3;
-  // 日期范围起
-  optional string start_date = 4;
-  // 日期范围止
-  optional string end_date = 5;
-  optional MealType meal_type = 6;
-}
-
-// 打卡列表响应
-message DietRecordListResponse {
-  repeated DietRecordItem list = 1;
-  int32 total = 2;
-  int32 page_num = 3;
-  int32 page_size = 4;
-}
-
-// 每餐营养明细
-message MealNutrition {
-  MealType meal_type = 1;
-  NutritionInfo nutrition = 2;
-  repeated DietRecordItem records = 3;
-}
-
-// 每日营养汇总
-message DailyNutritionSummary {
-  string date = 1;
-  NutritionInfo nutrition = 2;
-  // 各餐明细
-  repeated MealNutrition meals = 3;
+// 删除识别图片响应
+message DeleteRecognizeImageResponse {
+  // 是否删除成功
+  bool success = 1;
 }

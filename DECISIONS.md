@@ -243,3 +243,114 @@ proto（整合方）→ server（Go）→ mobile-shared（KMP）→ ios/android 
 **替代方案**：
 - 方案 B（KMP + NestJS）：保留 TS 服务端，AI 生态好但用户选 Go
 - 方案 C（双原生 + NestJS）：最低门槛但移动端逻辑写两遍，否决
+
+## D009 · 数据库统一 PostgreSQL（2026-07-10）
+
+**结论**：
+- 全程使用 PostgreSQL，禁止 MySQL
+- Go 后端用 pgx 驱动搭配 GORM，所有业务 SQL 基于 PG 语法编写
+- go.mod 依赖 `github.com/jackc/pgx/v5` + `gorm.io/driver/postgres`
+
+**理由**：
+- Neon Serverless PG 支持数据库分支功能，TRAE 多会话并行开发可隔离测试数据
+- PG 与 MySQL 在 JSONB、序列、布尔等类型上有差异，统一 PG 避免后续切换时大规模改写 SQL
+- pgx 是 Go 生态最成熟的 PG 驱动，性能与功能兼顾
+
+**影响**：
+- 服务端 DB 配置默认端口改为 5432（D009 前为 MySQL 的 3306）
+- 所有 migration 用 PG 语法
+- .env.example DB_* 配置项已更新
+
+## D010 · 食物拍照 AI 识别隐私方案（2026-07-10）
+
+**结论**：
+- 用户拍摄三餐照片 → App 本地压缩 → 临时上传 COS 临时桶（独立桶）→ 后端用预签名 URL 调 VLM 识别
+- 识别完成后图片**暂存于临时桶**，供用户在前端确认/编辑识别结果（不立即删除）
+- 用户确认打卡 → App 调 DeleteRecognizeImage 接口 → 后端立即删除 COS 临时桶原图
+- 兜底：COS 临时桶配置生命周期规则，**5 分钟后自动清理**未删除的图片
+- 识别结果（纯文字营养数据）为隐私数据，存本地 SQLDelight + 私有云，**不上传后端**
+
+**关键约束**：
+- 不缓存原图、不写入数据库、不做日志留存
+- 临时图片独立存储桶，与永久运营素材桶隔离，便于一键清理
+- 双删除机制：用户确认主动删 + 5分钟生命周期兜底删
+- 后端只接收 imageKey，不存图片 URL 到数据库
+
+**隐私协议措辞**：
+> 拍摄的食物照片将临时上传至腾讯云对象存储用于AI识别，识别完成后立即删除，平台不持久存储任何用户照片。
+
+**影响**：
+- proto 新增 `DeleteRecognizeImage` rpc（`POST /api/ai/food/delete-image`）
+- `FoodRecognizeResponse` 新增 `image_key` 字段回传前端
+- 服务端新增 `storage/cos.go` 双桶封装（永久素材桶 + AI临时桶）
+- mobile-shared 新增 `ImageUploader` expect 抽象（压缩+上传+返回 imageKey）
+
+## D011 · 饮食打卡明细完全本地化（2026-07-10）
+
+**结论**：
+- 彻底移除后端 `DietService` 全套 proto、接口逻辑、数据库表
+- 完整饮食明细、食物照片缓存仅存设备本地 SQLDelight
+- 跨设备同步走用户私有云（iOS iCloud CloudKit / Android 坚果云 WebDAV），**不走后端**
+- 后端仅保留四类非隐私业务数据：米花积分、会员订阅、邀请好友、全局主题素材链接
+- 无强制云端上传逻辑，不存在用户饮食明细同步至我方服务器的行为
+
+**AI 计划生成的数据来源**：
+- App 从本地 SQLDelight 聚合近7日营养均值（4个匿名数字：热量/蛋白质/碳水/脂肪 + 统计天数）
+- 作为 `RecentNutritionSummary` 可选字段传后端
+- 后端调 LLM 生成计划后**用完即丢，不入库**
+- 传的是聚合数字不是食物明细，隐私风险极低
+
+**影响**：
+- proto 删除 `DietService`、`DietRecordItem`、`DietRecordListRequest/Response`、`DailyNutritionSummary` 等全部饮食打卡相关结构
+- proto `GeneratePlanRequest` 新增 `recent_nutrition` 可选字段
+- 服务端 router 删除 diet 路由
+- mobile-shared `Endpoint` 删除 diet 端点
+- mobile-shared `FoodRepository` 删除 logDiet/listDiet，新增 `deleteImage`
+- mobile-shared 新增 `LocalDietStorage`（expect，SQLDelight 实现）
+- mobile-shared 新增 `CloudSync`（expect，iCloud/坚果云 实现）
+- `BomiSDK.create()` 注入 4 个依赖：tokenStorage / localDietStorage / cloudSync / imageUploader
+
+**换设备迁移（iOS↔Android）**：
+- App 提供"导出本地数据为加密文件"+"导入"功能，用户手动迁移
+- 零后端依赖，隐私完全本地
+
+## D012 · 分阶段部署策略（2026-07-10）
+
+**结论**：
+- **当前开发/内测阶段（现阶段执行）**：场景二
+  - 低配 1核1G 腾讯轻量服务器 + Neon Serverless PostgreSQL + 腾讯 COS（无CDN）
+  - 适配 TRAE 三会话并行开发，Neon 数据库分支隔离测试数据
+  - 免数据库运维、闲置零计费
+- **正式上架商用阶段（后期切换）**：场景一
+  - 已购 2核2G 腾讯轻量主机 + Docker 自建国内 PostgreSQL + 腾讯 COS（无CDN）
+  - 境内全数据存储，上架合规无额外隐私标注
+  - 切换仅修改数据库连接地址，SQL 完全兼容，无大规模业务重构
+
+**理由**：
+- 开发期：Neon 免运维 + 分支隔离 + 闲置零计费，适合长期迭代
+- 上线期：境内 PG 满足国内合规，充分利用已购服务器硬件
+- D009 统一 PG 语法保证两阶段切换零业务重构
+
+**影响**：
+- 服务端 `.env.example` DB_* 配置项支持两种场景（改连接串即可切换）
+- 不影响客户端代码（客户端只调 API，不关心数据库部署形态）
+
+## D013 · 存储与 CDN 规则（2026-07-10）
+
+**结论**：
+- 动态运营素材存放 COS 永久桶，基础 UI 资源打包客户端本地
+- 全程不开通、不购买 CDN，使用 COS 原生域名加载素材
+- 区分双 COS 桶：
+  - 桶1 永久素材桶：存放运营海报/主题素材，长期存储
+  - 桶2 AI 临时图片桶：食物识别用，5分钟生命周期自动清理（配合 D010）
+
+**理由**：
+- 省去域名备案、CDN 鉴权、缓存配置等额外开发工作
+- 前期零成本（COS 新用户 50G 免费 + 10G/月免费下行流量）
+- 内测阶段免费额度足够使用
+
+**影响**：
+- 服务端 `config.COSConfig` 双桶配置（MaterialBucket + AITempBucket）
+- 服务端 `storage/cos.go` 双客户端封装
+- `.env.example` 新增 `COS_MATERIAL_BUCKET` + `COS_AI_TEMP_BUCKET` 配置项
+- 硬性约束：禁止将海报、主题大图存放在轻量服务器本地磁盘

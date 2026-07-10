@@ -15,6 +15,8 @@
 - **不写**：网络层、数据模型、Repository、契约（这些走 KMP `mobile-shared/`）
 - **不写**：proto / server / admin / miniapp / android
 
+> **D009-D013 隐私架构修订已完成**：D009 PostgreSQL 统一（pgx + GORM，禁止 MySQL）；D010 AI 食物识别图片临时上传 COS → VLM 识别 → 用户确认后删除 → 5 分钟生命周期兜底；D011 饮食打卡明细完全本地化（SQLDelight + iCloud/坚果云），后端无 diet 接口；D012 开发期 Neon PG + 上线自建 PG；D013 腾讯云 COS 双桶（永久素材 + AI 临时）+ 无 CDN。iOS 侧需落地 LocalDietStorage / CloudSync / ImageUploader 三个 actual 实现。
+
 ## 2. 技术栈（D008 锁定）
 
 | 项 | 选型 |
@@ -28,6 +30,9 @@
 | 工程 | `packages/ios/Bomi/Bomi.xcodeproj` |
 | 工具链 | Xcode 15+ |
 | KMP 集成 | CocoaPods 或 SPM 引入 `mobile-shared` 编译产物 |
+| 本地数据库 | SQLDelight（封装 SQLite，存饮食打卡明细，D011） |
+| 私有云同步 | CloudKit 私有数据库（跨设备同步本地数据，D011） |
+| 图片上传 | 各端 ImageUploader actual 实现（压缩 + 传 COS 临时桶，D010） |
 
 > D006 的「Swift 手动镜像类型」方案已废弃。类型一律走 KMP 导出，不再在 `Shared/Models/` 手写 Swift struct。
 
@@ -45,6 +50,18 @@ packages/ios/Bomi/
 └── Resources/        —— Assets.xcassets, Localizable.strings
 ```
 
+### 3.1 mobile-shared 新增的 expect 抽象（iOS 负责实现 actual）
+
+D011/D010 后 `mobile-shared/commonMain/` 新增三个 expect，iOS 侧在 `mobile-shared/iosMain/` 落地 actual：
+
+| expect 抽象 | 职责 | iOS actual 实现 |
+|---|---|---|
+| `LocalDietStorage` | 饮食打卡明细本地持久化（D011，后端无 diet 接口） | SQLDelight + SQLite |
+| `CloudSync` | 本地数据跨设备同步（D011） | CloudKit 私有数据库 |
+| `ImageUploader` | 图片压缩 + 上传 COS 临时桶（D010） | UIImage 压缩 + COS 直传 |
+
+> 三个 expect 接口由整合方在 `commonMain` 定义，iOS 侧只写 `iosMain` actual；expect 接口不得擅改。
+
 ## 4. KMP 集成方式（核心）
 
 ### 4.1 集成路径
@@ -52,7 +69,7 @@ packages/ios/Bomi/
 iOS 通过引入 `mobile-shared` 编译出的 framework，调用 KMP 暴露的 `BomiSDK` 及各 Repository。**禁止在 Swift 层重新实现网络/数据层**。
 
 - 推荐：CocoaPods（`pod 'mobile-shared', :path => '../../mobile-shared'`）或 SPM 引入本地 framework
-- KMP framework 暴露的入口：`BomiSDK.create(tokenStorage)` → 返回 `authRepository` / `foodRepository` / `planRepository`
+- KMP framework 暴露的入口：`BomiSDK.create(tokenStorage, localDietStorage, cloudSync, imageUploader)` → 返回 `authRepository` / `foodRepository` / `planRepository`（注入 4 个依赖，D010/D011）
 - Swift 调用 Kotlin 时注意：Kotlin `suspend` 函数在 Swift 侧表现为 `async`，可直接 `await`
 
 ### 4.2 初始化（App 启动时一次）
@@ -66,10 +83,18 @@ struct BomiApp: App {
     @StateObject private var appState = AppState()
 
     init() {
-        // 1. 构造 TokenStorage（iOS actual 由 Keychain 实现）
-        let tokenStorage = TokenStorage()
-        // 2. 创建 SDK，各 Repository 由 SDK 暴露
-        let sdk = BomiSDK.create(tokenStorage: tokenStorage)
+        // 1. 构造四个依赖（iOS actual 实现）
+        let tokenStorage = TokenStorage()                    // Keychain
+        let localDietStorage = LocalDietStorage()            // SQLDelight + SQLite（D011）
+        let cloudSync = CloudSync()                          // CloudKit 私有数据库（D011）
+        let imageUploader = ImageUploader()                  // UIImage 压缩 + COS 临时桶直传（D010）
+        // 2. 创建 SDK，注入 4 个依赖，各 Repository 由 SDK 暴露
+        let sdk = BomiSDK.create(
+            tokenStorage: tokenStorage,
+            localDietStorage: localDietStorage,
+            cloudSync: cloudSync,
+            imageUploader: imageUploader
+        )
         // 3. 注入到 AppState 供各 ViewModel 使用
         appState.bind(sdk: sdk)
     }
@@ -263,10 +288,16 @@ request.requestedScopes = [.fullName, .email]
 
 1. KMP 集成：Xcode 引入 `mobile-shared` framework（CocoaPods 或 SPM）
 2. TokenStorage：实现 `iosMain` 的 Keychain actual（替换内存骨架）
-3. 迁移 Networking/：删除原 `APIClient.swift`，改为调用 `BomiSDK` 各 Repository
-4. 迁移 Shared/Models：删除手动 Swift 镜像，改用 KMP 导出类型
-5. SwiftUI View 保留：`LoginView` / `LoginViewModel` 迁移为调用 `BomiSDK.authRepository`
-6. 新增页面：食物拍照识别页、饮食打卡列表页、健康计划页
+3. LocalDietStorage：实现 iOS actual（SQLDelight + SQLite，存饮食打卡明细，D011）
+4. CloudSync：实现 iOS actual（CloudKit 私有数据库，跨设备同步本地数据，D011）
+5. ImageUploader：实现 iOS actual（UIImage 压缩 + COS 临时桶直传，D010）
+6. 迁移 Networking/：删除原 `APIClient.swift`，改为调用 `BomiSDK` 各 Repository
+7. 迁移 Shared/Models：删除手动 Swift 镜像，改用 KMP 导出类型
+8. SwiftUI View 保留：`LoginView` / `LoginViewModel` 迁移为调用 `BomiSDK.authRepository`
+9. 食物识别流程（D010）：压缩 → 上传 COS 临时桶 → 调 `recognize` → 用户确认 → 调 `deleteImage` → 存本地 SQLDelight
+10. 饮食打卡列表：从本地 `LocalDietStorage` 读取，不再调后端 diet 接口（D011）
+11. 健康计划页：调 `planRepository.generate`，传 `RecentNutritionSummary`（从本地 DB 聚合近 7 日营养均值）
+12. BomiSDK.create() 注入 4 个依赖：tokenStorage / localDietStorage / cloudSync / imageUploader
 
 ## 21. 自检清单（输出前必走）
 
