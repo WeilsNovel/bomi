@@ -9,7 +9,5 @@
     "typecheck": "echo \"[TODO] 由对话①初始化后填充\"",
     "lint": "echo \"[TODO] 由对话①初始化后填充\""
   },
-  "dependencies": {
-    "@bomi/shared": "workspace:*"
-  }
+  "dependencies": {}
 }

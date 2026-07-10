@@ -2,7 +2,7 @@
   "name": "bomi",
   "version": "0.0.0",
   "private": true,
-  "description": "bomi · AI 食物识别 + 健康计划 多端协同项目（Monorepo）",
+  "description": "bomi · AI 食物识别 + 健康计划 多端协同项目（Monorepo · D008 架构：proto + Go + KMP）",
   "packageManager": "pnpm@9.0.0",
   "engines": {
     "node": ">=20.0.0",
@@ -11,12 +11,8 @@
   "scripts": {
     "dev:miniapp": "pnpm --filter @bomi/miniapp dev:mp-weixin",
     "dev:admin": "pnpm --filter @bomi/admin dev",
-    "dev:server": "pnpm --filter @bomi/server start:dev",
-    "build:shared": "pnpm --filter @bomi/shared build",
     "build:miniapp": "pnpm --filter @bomi/miniapp build:mp-weixin",
     "build:admin": "pnpm --filter @bomi/admin build",
-    "build:server": "pnpm --filter @bomi/server build",
-    "build:ai": "pnpm --filter @bomi/ai build",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",

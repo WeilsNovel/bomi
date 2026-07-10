@@ -34,3 +34,28 @@ project.private.config.json
 
 # Test
 coverage/
+
+# ===== Go (server/) =====
+server/bin/
+server/tmp/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# ===== Gradle / KMP (mobile-shared/) =====
+mobile-shared/.gradle/
+mobile-shared/build/
+mobile-shared/local.properties
+*.keystore
+*.jks
+
+# ===== proto codegen 产物 =====
+# 由 make proto 生成，不入库
+gen/
+server/internal/gen/
+mobile-shared/src/commonMain/kotlin/com/bomi/shared/gen/
+packages/admin/src/gen/
