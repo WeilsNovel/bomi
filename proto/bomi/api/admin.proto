@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package bomi.api;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "bomi/model/user.proto";
+
+option go_package = "github.com/WeilsNovel/bomi/gen/go/bomi/api";
+option java_package = "bomi.kotlin";
+option java_multiple_files = true;
+
+// 管理后台统计概览
+message AdminStatsOverview {
+  // 用户总数
+  int32 user_count = 1;
+  // 今日打卡数
+  int32 today_checkin_count = 2;
+  // AI 调用次数
+  int32 ai_call_count = 3;
+  // token 用量
+  int64 token_usage = 4;
+}
+
+// 用户列表响应包装
+message UserListApiResponse {
+  int32 code = 1;
+  string message = 2;
+  bomi.model.UserListResponse data = 3;
+  string trace_id = 4;
+  int64 timestamp = 5;
+}
+
+// 用户更新响应包装
+message UserUpdateApiResponse {
+  int32 code = 1;
+  string message = 2;
+  bomi.model.UserItem data = 3;
+  string trace_id = 4;
+  int64 timestamp = 5;
+}
+
+// 统计概览响应包装
+message AdminStatsOverviewApiResponse {
+  int32 code = 1;
+  string message = 2;
+  AdminStatsOverview data = 3;
+  string trace_id = 4;
+  int64 timestamp = 5;
+}
+
+// 更新用户请求（path 参数 id + body 体 UserUpdateRequest）
+message UpdateUserRequest {
+  // 用户 ID（映射到 path 参数 /api/admin/users/{id}）
+  int32 id = 1;
+  // 更新内容（映射到 body）
+  bomi.model.UserUpdateRequest data = 2;
+}
+
+// 管理后台服务
+service AdminService {
+  // 用户列表（POST，body 传查询条件）
+  rpc ListUsers(bomi.model.UserListRequest) returns (UserListApiResponse) {
+    option (google.api.http) = {
+      post: "/api/admin/users"
+      body: "*"
+    };
+  }
+
+  // 更新用户
+  rpc UpdateUser(UpdateUserRequest) returns (UserUpdateApiResponse) {
+    option (google.api.http) = {
+      put: "/api/admin/users/{id}"
+      body: "data"
+    };
+  }
+
+  // 统计概览
+  rpc GetStatsOverview(google.protobuf.Empty) returns (AdminStatsOverviewApiResponse) {
+    option (google.api.http) = {
+      get: "/api/admin/stats/overview"
+    };
+  }
+}

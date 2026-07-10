@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package bomi.model;
+
+option go_package = "github.com/WeilsNovel/bomi/gen/go/bomi/model";
+option java_package = "bomi.kotlin";
+option java_multiple_files = true;
+
+// AI 消息角色
+// TS 中为 string 联合类型（'system'|'user'|'assistant'|'tool'），
+// proto3 使用 enum，应用层需映射。
+enum AiMessageRole {
+  AI_MESSAGE_ROLE_UNSPECIFIED = 0;
+  SYSTEM = 1;
+  USER = 2;
+  ASSISTANT = 3;
+  TOOL = 4;
+}
+
+// AI 消息结构
+message AiMessage {
+  AiMessageRole role = 1;
+  string content = 2;
+  // 工具调用 ID（role = tool 时）
+  optional string tool_call_id = 3;
+}
+
+// AI token 用量（计费/统计）
+message AiUsage {
+  int32 prompt_tokens = 1;
+  int32 completion_tokens = 2;
+  int32 total_tokens = 3;
+}
+
+// 工具调用结构
+message AiToolCall {
+  string name = 1;
+  // JSON string（TS 中为 Record<string, unknown>，proto 用 string 承载 JSON）
+  string arguments = 2;
+}
+
+// AI 请求参数
+message AiRequest {
+  // 会话 ID
+  string session_id = 1;
+  // 消息列表
+  repeated AiMessage messages = 2;
+  // 模型名称（覆盖默认）
+  optional string model = 3;
+  // 温度 0-2
+  optional double temperature = 4;
+  // 最大 token
+  optional int32 max_tokens = 5;
+  // 是否流式返回
+  optional bool stream = 6;
+  // 启用的工具列表
+  repeated string tools = 7;
+}
+
+// AI 响应结构
+message AiResponse {
+  string session_id = 1;
+  // 回复内容
+  string content = 2;
+  // 使用的模型
+  string model = 3;
+  // token 用量
+  AiUsage usage = 4;
+  // 工具调用结果（如有）
+  repeated AiToolCall tool_calls = 5;
+}
+
+// AI 流式响应分片（stream=true 时 SSE 分片）
+message AiStreamChunk {
+  string content = 1;
+  bool done = 2;
+}

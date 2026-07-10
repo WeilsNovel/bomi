@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package bomi.enum;
+
+option go_package = "github.com/WeilsNovel/bomi/gen/go/bomi/enum";
+option java_package = "bomi.kotlin";
+option java_multiple_files = true;
+
+// AI 供应商
+// TS 中为 string 常量（'openai'/'claude'/...），proto3 enum 仅支持整数值，
+// 应用层需维护 enum→string 的映射。
+enum AIProvider {
+  AI_PROVIDER_UNSPECIFIED = 0;
+  AI_PROVIDER_OPENAI = 1;   // 'openai'
+  AI_PROVIDER_CLAUDE = 2;   // 'claude'
+  AI_PROVIDER_QWEN = 3;     // 'qwen'
+  AI_PROVIDER_ZHIPU = 4;    // 'zhipu'
+  AI_PROVIDER_DOUBAO = 5;   // 'doubao'
+}
+
+// AI 模型（食物识别用 VLM 视觉模型）
+// TS 中为 string 常量，proto3 enum 使用整数值，应用层需映射。
+enum AIModel {
+  AI_MODEL_UNSPECIFIED = 0;
+  AI_MODEL_QWEN_VL_MAX = 1;        // 'qwen-vl-max'
+  AI_MODEL_QWEN_VL_PLUS = 2;       // 'qwen-vl-plus'
+  AI_MODEL_DOUBAO_VISION = 3;      // 'doubao-vision-pro'
+  AI_MODEL_GPT_4O = 4;             // 'gpt-4o'
+  AI_MODEL_GPT_4O_MINI = 5;        // 'gpt-4o-mini'
+  AI_MODEL_CLAUDE_35_SONNET = 6;   // 'claude-3-5-sonnet'
+}
+
+// AI 任务类型（用于路由到不同 Prompt 模板）
+// TS 中为 string 常量，proto3 enum 使用整数值，应用层需映射。
+enum AITask {
+  AI_TASK_UNSPECIFIED = 0;
+  AI_TASK_FOOD_RECOGNIZE = 1;   // 'food-recognize'
+  AI_TASK_PLAN_GENERATE = 2;    // 'plan-generate'
+  AI_TASK_CHAT = 3;             // 'chat'
+}

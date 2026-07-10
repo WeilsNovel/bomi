@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package bomi.enum;
+
+option go_package = "github.com/WeilsNovel/bomi/gen/go/bomi/enum";
+option java_package = "bomi.kotlin";
+option java_multiple_files = true;
+
+// 通用启用/禁用状态
+enum EnableStatus {
+  DISABLED = 0;
+  ENABLED = 1;
+}
+
+// 是/否
+enum YesNo {
+  NO = 0;
+  YES = 1;
+}
+
+// 软删除标记
+enum DeletedFlag {
+  NORMAL = 0;
+  DELETED = 1;
+}
+
+// 性别
+enum Gender {
+  UNKNOWN = 0;
+  MALE = 1;
+  FEMALE = 2;
+}
+
+// 活动水平（用于基础代谢/计划生成）
+enum ActivityLevel {
+  ACTIVITY_LEVEL_UNSPECIFIED = 0;
+  SEDENTARY = 1;
+  LIGHT = 2;
+  MODERATE = 3;
+  HIGH = 4;
+}

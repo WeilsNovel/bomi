@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package bomi.api;
+
+import "google/api/annotations.proto";
+import "bomi/model/ai.proto";
+import "bomi/model/food.proto";
+import "bomi/model/plan.proto";
+
+option go_package = "github.com/WeilsNovel/bomi/gen/go/bomi/api";
+option java_package = "bomi.kotlin";
+option java_multiple_files = true;
+
+// AI 对话响应包装
+message AiChatApiResponse {
+  int32 code = 1;
+  string message = 2;
+  bomi.model.AiResponse data = 3;
+  string trace_id = 4;
+  int64 timestamp = 5;
+}
+
+// 食物识别响应包装
+message FoodRecognizeApiResponse {
+  int32 code = 1;
+  string message = 2;
+  bomi.model.FoodRecognizeResponse data = 3;
+  string trace_id = 4;
+  int64 timestamp = 5;
+}
+
+// 计划生成响应包装
+message GeneratePlanApiResponse {
+  int32 code = 1;
+  string message = 2;
+  bomi.model.GeneratePlanResponse data = 3;
+  string trace_id = 4;
+  int64 timestamp = 5;
+}
+
+// AI 服务
+service AiService {
+  // AI 对话（通用聊天/流式）
+  rpc Chat(bomi.model.AiRequest) returns (AiChatApiResponse) {
+    option (google.api.http) = {
+      post: "/api/ai/chat"
+      body: "*"
+    };
+  }
+
+  // 食物识别
+  rpc FoodRecognize(bomi.model.FoodRecognizeRequest) returns (FoodRecognizeApiResponse) {
+    option (google.api.http) = {
+      post: "/api/ai/food/recognize"
+      body: "*"
+    };
+  }
+
+  // 健康计划生成
+  rpc GeneratePlan(bomi.model.GeneratePlanRequest) returns (GeneratePlanApiResponse) {
+    option (google.api.http) = {
+      post: "/api/ai/plan/generate"
+      body: "*"
+    };
+  }
+}

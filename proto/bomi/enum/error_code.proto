@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package bomi.enum;
+
+option go_package = "github.com/WeilsNovel/bomi/gen/go/bomi/enum";
+option java_package = "bomi.kotlin";
+option java_multiple_files = true;
+
+// 业务错误码 - 前后端共享
+// 服务端抛错必须使用此枚举；前端异常处理引用错误码文案映射。
+// 所有错误码值与 TS constants/error-code.ts 完全一致。
+enum ErrorCode {
+  // 成功
+  SUCCESS = 0;
+  // 参数校验失败
+  PARAM_INVALID = 40001;
+  // 未登录
+  UNAUTHORIZED = 40101;
+  // token 失效
+  TOKEN_EXPIRED = 40102;
+  // 无权限
+  FORBIDDEN = 40301;
+  // 资源不存在
+  NOT_FOUND = 40401;
+  // 服务器错误
+  SERVER_ERROR = 50001;
+  // 业务限流
+  RATE_LIMIT = 42901;
+  // 第三方服务异常（短信/AI/OSS 等）
+  THIRD_PARTY_ERROR = 50002;
+  // 微信登录失败
+  WX_LOGIN_FAILED = 40111;
+  // 短信验证码错误或已过期
+  SMS_CODE_INVALID = 40112;
+  // 手机号已被绑定
+  PHONE_ALREADY_BOUND = 40113;
+  // Apple 登录失败（iOS 客户端）
+  APPLE_LOGIN_FAILED = 40114;
+  // AI 识别失败（图片无法识别/供应商返回错误）
+  AI_RECOGNIZE_FAILED = 50021;
+  // AI 计划生成失败
+  AI_PLAN_GENERATE_FAILED = 50022;
+  // AI 调用超时
+  AI_TIMEOUT = 50023;
+  // 图片上传失败
+  IMAGE_UPLOAD_FAILED = 50031;
+}

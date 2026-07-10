@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package bomi.model;
+
+import "bomi/enum/common.proto";
+import "bomi/model/food.proto";
+
+option go_package = "github.com/WeilsNovel/bomi/gen/go/bomi/model";
+option java_package = "bomi.kotlin";
+option java_multiple_files = true;
+
+// 计划类型
+enum PlanType {
+  PLAN_TYPE_UNSPECIFIED = 0;
+  // 减脂
+  FAT_LOSS = 1;
+  // 增肌
+  MUSCLE_GAIN = 2;
+  // 维持/健康
+  MAINTAIN = 3;
+}
+
+// 用户健康档案（用于生成计划）
+message HealthProfile {
+  int32 user_id = 1;
+  bomi.enum.Gender gender = 2;
+  int32 age = 3;
+  // 身高 cm
+  double height = 4;
+  // 体重 kg
+  double weight = 5;
+  // 目标体重 kg
+  optional double target_weight = 6;
+  bomi.enum.ActivityLevel activity_level = 7;
+  PlanType plan_type = 8;
+}
+
+// 生成计划请求（前端 → server）
+message GeneratePlanRequest {
+  // 健康档案（前端传，或服务端读取已有档案）
+  HealthProfile profile = 1;
+}
+
+// 单餐建议
+message MealSuggestion {
+  // 对应 MealType
+  int32 meal_type = 1;
+  string suggestion = 2;
+  NutritionInfo target_nutrition = 3;
+}
+
+// 单日计划
+message DayPlan {
+  // 第几天
+  int32 day = 1;
+  // 日期 YYYY-MM-DD
+  string date = 2;
+  // 当日目标营养素
+  NutritionInfo target_nutrition = 3;
+  // 三餐建议
+  repeated MealSuggestion meals = 4;
+}
+
+// 生成计划响应
+message GeneratePlanResponse {
+  // 计划 ID
+  string plan_id = 1;
+  // 计划名称
+  string plan_name = 2;
+  // 计划周期天数
+  int32 total_days = 3;
+  // 每日目标营养素
+  NutritionInfo daily_target = 4;
+  // 每日明细
+  repeated DayPlan days = 5;
+  // AI 生成的整体建议
+  string advice = 6;
+}
+
+// 计划列表项
+message PlanItem {
+  int32 id = 1;
+  int32 user_id = 2;
+  string plan_name = 3;
+  PlanType plan_type = 4;
+  int32 total_days = 5;
+  NutritionInfo daily_target = 6;
+  string start_date = 7;
+  string end_date = 8;
+  string created_at = 9;
+}
+
+// 计划列表查询入参
+message PlanListRequest {
+  int32 page_num = 1;
+  int32 page_size = 2;
+  optional PlanType plan_type = 3;
+}
+
+// 计划列表响应
+message PlanListResponse {
+  repeated PlanItem list = 1;
+  int32 total = 2;
+  int32 page_num = 3;
+  int32 page_size = 4;
+}

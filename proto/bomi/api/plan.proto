@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package bomi.api;
+
+import "google/api/annotations.proto";
+import "bomi/model/api.proto";
+import "bomi/model/plan.proto";
+
+option go_package = "github.com/WeilsNovel/bomi/gen/go/bomi/api";
+option java_package = "bomi.kotlin";
+option java_multiple_files = true;
+
+// 计划列表响应包装
+message PlanListApiResponse {
+  int32 code = 1;
+  string message = 2;
+  bomi.model.PlanListResponse data = 3;
+  string trace_id = 4;
+  int64 timestamp = 5;
+}
+
+// 计划详情响应包装
+message PlanDetailApiResponse {
+  int32 code = 1;
+  string message = 2;
+  bomi.model.PlanItem data = 3;
+  string trace_id = 4;
+  int64 timestamp = 5;
+}
+
+// 计划服务
+service PlanService {
+  // 获取计划列表
+  rpc GetPlans(bomi.model.PlanListRequest) returns (PlanListApiResponse) {
+    option (google.api.http) = {
+      get: "/api/plans"
+    };
+  }
+
+  // 获取计划详情
+  rpc GetPlan(bomi.model.IdParam) returns (PlanDetailApiResponse) {
+    option (google.api.http) = {
+      get: "/api/plans/{id}"
+    };
+  }
+}

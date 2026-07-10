@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package bomi.model;
+
+import "google/protobuf/any.proto";
+
+option go_package = "github.com/WeilsNovel/bomi/gen/go/bomi/model";
+option java_package = "bomi.kotlin";
+option java_multiple_files = true;
+
+// 统一响应结构（通用版，data 为 google.protobuf.Any）
+// 由于 protobuf 不支持泛型，推荐为每个接口单独定义具体的 Response message，
+// 此通用版本仅作为回退/参考使用。
+message BaseApiResponse {
+  // 业务状态码（0 = 成功，非 0 = 失败）
+  int32 code = 1;
+  // 提示消息（前端可直出）
+  string message = 2;
+  // 业务数据
+  google.protobuf.Any data = 3;
+  // 请求追踪 ID（服务端生成）
+  string trace_id = 4;
+  // 服务器时间戳（毫秒）
+  int64 timestamp = 5;
+}
+
+// 通用分页请求入参
+message PageQuery {
+  int32 page_num = 1;
+  int32 page_size = 2;
+}
+
+// 通用 ID 入参
+message IdParam {
+  int32 id = 1;
+}

@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package bomi.model;
+
+import "bomi/enum/common.proto";
+
+option go_package = "github.com/WeilsNovel/bomi/gen/go/bomi/model";
+option java_package = "bomi.kotlin";
+option java_multiple_files = true;
+
+// 用户实体
+message UserItem {
+  int32 id = 1;
+  // 昵称
+  string nickname = 2;
+  // 头像 URL
+  string avatar = 3;
+  // 手机号（脱敏后返回前端，如 138****8888）
+  string phone = 4;
+  // 性别
+  bomi.enum.Gender gender = 5;
+  // 用户状态：1 启用 / 0 禁用
+  int32 status = 6;
+  string created_at = 7;
+  string updated_at = 8;
+}
+
+// 微信登录入参
+message WxLoginRequest {
+  // wx.login 返回的 code
+  string code = 1;
+  // 用户授权昵称（新版小程序通过按钮授权获取）
+  optional string nickname = 2;
+  // 用户授权头像 URL
+  optional string avatar = 3;
+}
+
+// 手机号验证码登录入参
+message PhoneLoginRequest {
+  string phone = 1;
+  // 短信验证码
+  string code = 2;
+}
+
+// Apple 登录入参中的姓名结构（首次授权才有）
+message AppleFullName {
+  optional string given_name = 1;
+  optional string family_name = 2;
+}
+
+// Apple 登录入参（iOS 客户端专用，App Store 强制要求）
+message AppleLoginRequest {
+  // Apple 返回的 JWT identityToken
+  string identity_token = 1;
+  // Apple 返回的授权码
+  string authorization_code = 2;
+  // Apple 用户唯一标识（同 Apple ID 跨 App 稳定）
+  string apple_identifier = 3;
+  // 首次授权才有，后续授权返回空
+  optional AppleFullName full_name = 4;
+  // 用户自填昵称（Apple 不返回昵称，需客户端引导用户设置）
+  optional string nickname = 5;
+}
+
+// 发送短信验证码入参
+message SendSmsCodeRequest {
+  string phone = 1;
+  // 场景：login 登录 / bind 绑定
+  string scene = 2;
+}
+
+// 登录响应
+message LoginResponse {
+  // JWT token
+  string token = 1;
+  // 用户信息
+  UserItem user = 2;
+}
+
+// 用户列表查询入参（管理后台用）
+message UserListRequest {
+  int32 page_num = 1;
+  int32 page_size = 2;
+  optional string keyword = 3;
+  optional int32 status = 4;
+}
+
+// 用户列表响应
+message UserListResponse {
+  repeated UserItem list = 1;
+  int32 total = 2;
+  int32 page_num = 3;
+  int32 page_size = 4;
+}
+
+// 更新用户入参（管理后台用）
+message UserUpdateRequest {
+  optional string nickname = 1;
+  optional int32 status = 2;
+}

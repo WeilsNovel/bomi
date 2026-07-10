@@ -1,0 +1,14 @@
+version: v2
+plugins:
+  # Go 代码生成，go_package 在各 .proto 文件中按目录设置
+  # 前缀统一为 github.com/WeilsNovel/bomi/gen/go
+  - remote: buf.build/protocolbuffers/go
+    out: ../gen/go
+    opt:
+      - paths=source_relative
+  # Kotlin 代码生成，java_package 在各 .proto 文件中统一设为 bomi.kotlin
+  - remote: buf.build/protocolbuffers/kotlin
+    out: ../gen/kotlin
+  # TypeScript 代码生成（社区插件 stephenh-ts-proto）
+  - remote: buf.build/community/stephenh-ts-proto
+    out: ../gen/ts
