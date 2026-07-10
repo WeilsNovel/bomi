@@ -128,3 +128,118 @@
 - 不影响前端消费方式（bundler 兼容 CommonJS）
 
 **替代方案**：shared 内部导入补 .js 扩展名（原生 ESM 强制，侵入性大，否决）/ shared 改 type:commonjs 但不构建（TS 源码仍不能被 Node 直接加载，否决）
+
+## D008 · 架构转向：Go 服务端 + KMP 移动端（2026-06-30）
+
+**结论**：服务端从 NestJS(TS) 改为 Go；iOS/Android 移动端用 KMP 共享业务逻辑，UI 各端原生（SwiftUI + Compose）；契约机制从 TS 单一来源改为 protobuf 单一来源 + 多语言 codegen。
+
+**触发原因**：用户确认有 Android 客户端。KMP 跨 iOS/Android 共享业务逻辑可省 30-50% 重复代码；Go 服务端性能/部署优势。
+
+### 技术栈变更
+
+| 层 | 原方案（D001/D006） | 新方案（D008） |
+|---|---|---|
+| 服务端 | NestJS + TypeScript | **Go**（Gin/Echo + GORM） |
+| AI 调用层 | 独立 TS 包 @bomi/ai | **Go 内置 ai/ 包**（sashabaranov/go-openai 或通义千问 Go SDK） |
+| iOS | 纯 Swift + SwiftUI + Swift 镜像 | **KMP 共享逻辑 + SwiftUI** |
+| Android | 无 | **KMP 共享逻辑 + Jetpack Compose**（新增端） |
+| 管理后台 | Vue3 + Element Plus | 不变 |
+| 小程序 | Uni-app + Vue3 | 不变 |
+| 共享层 | TS 单一来源（@bomi/shared） | **protobuf 单一来源** + 多语言 codegen |
+| Monorepo | pnpm workspace | **混合**：pnpm（前端）+ Go modules（服务端）+ Gradle（KMP） |
+
+### 契约机制：protobuf 单一来源
+
+**proto/ 目录**定义所有 DTO/枚举/错误码/接口契约：
+- `proto/bomi/api/*.proto` —— 接口定义（gRPC gateway 或 REST 注解）
+- `proto/bomi/model/*.proto` —— 数据模型（User/Food/Plan/AI 等）
+- `proto/bomi/enum/*.proto` —— 枚举（ErrorCode/BusinessStatus/AIProvider 等）
+
+**codegen 产物**（不入库，按需生成）：
+- Go：`buf generate` → `gen/go/`（服务端直接 import）
+- Kotlin：`buf generate` → `gen/kotlin/`（KMP 模块 import）
+- TypeScript：`buf generate` → `gen/ts/`（admin/miniapp import）
+- Swift：通过 KMP 编译产出 Swift framework（Kotlin/Native → Swift interop，不需单独 codegen）
+
+**整合方独占**：`proto/` 目录 + codegen 配置（buf.yaml/buf.gen.yaml），与原 `packages/shared/` 同级。
+
+### 目录结构（新）
+
+```
+bomi/
+├── proto/                    # 🆕 protobuf 单一来源（整合方独占）
+│   ├── bomi/api/             # 接口定义
+│   ├── bomi/model/           # 数据模型
+│   ├── bomi/enum/            # 枚举
+│   ├── buf.yaml              # buf 配置
+│   └── buf.gen.yaml          # codegen 配置（Go/Kotlin/TS）
+├── gen/                      # 🆕 codegen 产物（.gitignore 排除）
+│   ├── go/
+│   ├── kotlin/
+│   └── ts/
+├── packages/                 # 前端（pnpm workspace）
+│   ├── admin/                # Vue3 + Element Plus（不变）
+│   └── miniapp/              # Uni-app（不变，暂时搁置）
+├── server/                   # 🆕 Go 服务端（go modules，不在 pnpm workspace）
+│   ├── cmd/                  # main.go
+│   ├── internal/
+│   │   ├── config/           # 配置（env）
+│   │   ├── handler/          # HTTP handler
+│   │   ├── service/          # 业务逻辑
+│   │   ├── repository/       # 数据访问
+│   │   ├── middleware/        # JWT/响应包装/异常处理
+│   │   └── ai/               # AI 调用层（Go 实现）
+│   ├── go.mod
+│   └── go.sum
+├── mobile-shared/            # 🆕 KMP 共享模块（Gradle）
+│   ├── build.gradle.kts
+│   └── src/
+│       ├── commonMain/       # 共享逻辑（网络/仓库/用例/模型）
+│       ├── iosMain/
+│       └── androidMain/
+├── ios/                      # iOS：KMP 集成 + SwiftUI
+│   └── Bomi.xcodeproj
+├── android/                  # 🆕 Android：KMP 集成 + Compose
+│   └── app/
+├── docs/
+├── Makefile                  # 🆕 跨语言编排（proto gen / build / test）
+└── .ai-context.md / DECISIONS.md / .ai-memory.md
+```
+
+### 迁移影响评估
+
+| 已有工作 | 影响 | 处理 |
+|---|---|---|
+| `packages/shared/`（TS types） | ❌ 废弃 | 迁移到 `proto/` 定义，TS 产物走 codegen |
+| `packages/server/`（NestJS 占位） | ❌ 废弃 | 改为 `server/`（Go） |
+| `packages/ai/`（TS 包占位） | ❌ 废弃 | 合并到 `server/internal/ai/`（Go） |
+| iOS Stage 1（Swift 镜像 + Networking） | ⚠️ 部分重构 | Shared/ 改为 KMP 集成，Networking 迁到 KMP，SwiftUI View 保留 |
+| `packages/admin/`（Vue3 占位） | ✅ 保留 | 类型来源从 @bomi/shared 改为 gen/ts/ |
+| D006 iOS 决策（Swift 镜像方案） | ❌ 废弃 | 改为 KMP 集成，D008 覆盖 |
+| D007 shared 构建配置 | ❌ 废弃 | 不再有 TS shared 包 |
+| `docs/prompts/`（server/ios） | ❌ 需重写 | 技术栈变了 |
+| `docs/skills/`（四端） | ❌ 需重写 | 技术栈变了 |
+
+### 新的合并顺序
+
+```
+proto（整合方）→ server（Go）→ mobile-shared（KMP）→ ios/android → admin/miniapp
+```
+
+### 工具链要求
+
+- **buf**（protobuf 管理 + codegen）：`brew install bufbuild/buf/buf`
+- **Go**：1.22+
+- **Kotlin/KMP**：1.9.20+，Android Studio / Xcode
+- **pnpm**：前端 workspace
+- **Makefile**：跨语言编排
+
+**理由**：
+- Go 服务端：性能/部署/并发优势，适合未来扩展
+- KMP：iOS/Android 共享业务逻辑，省重复代码，UI 各端原生保证体验
+- protobuf 契约：跨 4 语言唯一可靠的单一来源方案，codegen 保证一致性
+- AI 层用 Go：sashabaranov/go-openai 成熟，通义千问有 Go SDK，无需跨语言调用
+
+**替代方案**：
+- 方案 B（KMP + NestJS）：保留 TS 服务端，AI 生态好但用户选 Go
+- 方案 C（双原生 + NestJS）：最低门槛但移动端逻辑写两遍，否决
